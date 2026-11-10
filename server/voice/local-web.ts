@@ -402,6 +402,8 @@ export function promisesSearch(text: string): boolean {
 /** Les trajets en phrases à dire, chiffres déjà exacts. */
 type SpokenConnection = Parameters<typeof trainSummary>[0][number];
 
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
 const spokenTime = (time: string) => time.replace(':', ' h ').replace(/ h 00$/u, ' h');
 
 /**
@@ -849,7 +851,7 @@ export function createWebTools(
         `En ce moment à ${location.name} : ${Math.round(forecast.current.temperature_2m)} degrés, ${WEATHER_CODES[forecast.current.weather_code] ?? 'temps inconnu'}.`,
       ...(daily?.time.map(
         (day, index) =>
-          `${new Intl.DateTimeFormat('fr-BE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))} : ${WEATHER_CODES[daily.weather_code[index] ?? -1] ?? 'temps inconnu'}, de ${Math.round(daily.temperature_2m_min[index] ?? 0)} à ${Math.round(daily.temperature_2m_max[index] ?? 0)} degrés, ${daily.precipitation_probability_max[index] ?? 0} % de risque de pluie.`,
+          `${capitalize(new Intl.DateTimeFormat('fr-BE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`)))} : ${WEATHER_CODES[daily.weather_code[index] ?? -1] ?? 'temps inconnu'}, de ${Math.round(daily.temperature_2m_min[index] ?? 0)} à ${Math.round(daily.temperature_2m_max[index] ?? 0)} degrés, ${daily.precipitation_probability_max[index] ?? 0} % de risque de pluie.`,
       ) ?? []),
     ]
       .filter(Boolean)
