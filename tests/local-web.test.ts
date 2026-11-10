@@ -7,6 +7,8 @@ import {
   decodeEntities,
   htmlToText,
   isWebTool,
+  promisesSearch,
+  searchNotice,
 } from '../server/voice/local-web.js';
 import type { VoiceEvent } from '../server/voice/provider.js';
 
@@ -225,4 +227,11 @@ test('the local voice runs web tools itself and reports the search', async () =>
 test('web tools are off when web search is disabled', () => {
   assert.ok(isWebTool('train_belgium'));
   assert.ok(!isWebTool('home_assistant__control'));
+});
+
+test('a promise to search without a tool call is spotted', () => {
+  assert.ok(promisesSearch('Je regarde ça sur Internet.'));
+  assert.ok(promisesSearch('Un instant, je vais vérifier.'));
+  assert.ok(!promisesSearch('Il faut cinquante et une minutes.'));
+  assert.equal(searchNotice('train_belgium'), 'Je regarde les horaires de la SNCB.');
 });

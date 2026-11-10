@@ -369,6 +369,29 @@ const WEATHER_CODES: Record<number, string> = {
 // ---------------------------------------------------------------------------------------------
 // Outils
 
+/** Ce que Cornelius dit pendant qu'il cherche, selon l'outil. */
+export function searchNotice(name: string): string {
+  switch (name) {
+    case 'train_belgium':
+      return 'Je regarde les horaires de la SNCB.';
+    case 'weather_place':
+      return 'Je regarde la météo.';
+    case 'news':
+      return 'Je regarde les dernières actualités.';
+    case 'wikipedia':
+      return 'Je regarde sur Wikipédia.';
+    default:
+      return 'Je cherche sur Internet.';
+  }
+}
+
+/** Le modèle a promis de chercher sans appeler d'outil : il faut le relancer. */
+export function promisesSearch(text: string): boolean {
+  return /\b(je (regarde|cherche|vérifie|consulte|vais (regarder|chercher|vérifier|consulter))|un (instant|moment)|laisse[- ]moi)\b/iu.test(
+    text,
+  );
+}
+
 export function createWebTools(
   fetchImpl: typeof fetch = fetch,
   resolve: HostResolver = defaultResolver,
@@ -801,7 +824,7 @@ export function createWebTools(
 
 Date et heure actuelles : ${today} (${iso}), heure de Belgique.
 Accès à Internet : tu peux chercher toi-même sur Internet avec les outils web_search, web_read, wikipedia, news, train_belgium et weather_place. Ne réponds jamais de mémoire à une question factuelle dont tu n’es pas certain (chiffre, date, horaire, prix, personne, actualité, résultat sportif) : vérifie d’abord. Choisis l’outil le plus précis : train_belgium pour un train ou un trajet en train en Belgique (gares SNCB, par exemple « Charleroi-Central », « Bruxelles-Central », « Bruxelles-Midi »), weather_place pour la météo d’une autre ville, wikipedia pour la culture générale, news pour l’actualité, web_search pour le reste. Tu peux enchaîner plusieurs recherches : si les extraits ne suffisent pas, lis la page la plus fiable avec web_read, ou reformule la recherche. Croise deux sources quand c’est important. Prends le temps qu’il faut pour avoir une réponse juste et riche.
-Avant de lancer une recherche, dis une courte phrase pour faire patienter (par exemple « Je regarde ça sur Internet. »). Ensuite, donne la réponse à l’oral en quelques phrases naturelles, avec les chiffres utiles, sans lire d’adresse web ni de liste à puces ; cite la source en un mot si c’est utile (« d’après la SNCB… »). Si rien de fiable n’est trouvé, dis-le simplement.`;
+N’annonce pas la recherche et ne fais pas patienter : appelle directement l’outil, sans rien dire avant (Cornelius prévient lui-même la personne qu’il cherche). Cette règle prime sur les consignes qui demandent de meubler l’attente. Une fois les résultats reçus, donne la réponse à l’oral en quelques phrases naturelles, avec les chiffres utiles, sans lire d’adresse web ni de liste à puces ; cite la source en un mot si c’est utile (« d’après la SNCB… »). Si rien de fiable n’est trouvé, dis-le simplement.`;
   }
 
   return { run, instructions, tools: WEB_TOOLS };

@@ -1,4 +1,4 @@
-import { createWebTools, isWebTool } from './local-web.js';
+import { createWebTools, isWebTool, promisesSearch, searchNotice } from './local-web.js';
 import type { VoiceConnection, VoiceEvent, VoiceProviderAdapter } from './provider.js';
 
 /**
@@ -358,11 +358,26 @@ export function createLocalVoiceAdapter(
         notify({ type: 'state', state: 'thinking' });
         const startMs = elapsed();
         let spoken = '';
+        let searched = false;
+        let nudged = false;
+        const nudges: ChatMessage[] = [];
         for (let round = 0; round < MAX_TOOL_ROUNDS && !signal.aborted; round++) {
           const { text, calls } = await complete(signal, true);
           if (text) spoken += (spoken ? ' ' : '') + text;
           if (!calls.length) {
             if (text) history.push({ role: 'assistant', content: text });
+            // Un petit modèle annonce parfois « je regarde » puis s'arrête : on le relance une fois.
+            if (config.webSearch && !searched && !nudged && text && promisesSearch(text)) {
+              nudged = true;
+              const nudge: ChatMessage = {
+                role: 'user',
+                content:
+                  '(Consigne de Cornelius, pas de la personne : appelle maintenant l’outil adapté pour trouver la réponse, sans rien dire avant.)',
+              };
+              nudges.push(nudge);
+              history.push(nudge);
+              continue;
+            }
             break;
           }
           history.push({
@@ -379,6 +394,12 @@ export function createLocalVoiceAdapter(
             if (signal.aborted) break;
             let output: string;
             if (usesWeb(call.name)) {
+              if (!searched && !text) {
+                notify({ type: 'state', state: 'speaking' });
+                await speak(searchNotice(call.name), signal).catch(() => {});
+                notify({ type: 'state', state: 'thinking' });
+              }
+              searched = true;
               notify({ type: 'web_search', id: call.id, active: true });
               const result = await web.run(call.name, call.args);
               notify({ type: 'web_search', id: call.id, active: false, sources: result.sources });
@@ -395,6 +416,7 @@ export function createLocalVoiceAdapter(
             history.push({ role: 'assistant', content: text });
           }
         }
+        for (const nudge of nudges) history.splice(history.indexOf(nudge), 1);
         if (spoken && !signal.aborted)
           notify({
             type: 'assistant_transcript',
