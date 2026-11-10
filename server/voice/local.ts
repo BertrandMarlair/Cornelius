@@ -394,6 +394,9 @@ export function createLocalVoiceAdapter(
             })),
           });
           notify({ type: 'state', state: 'thinking' });
+          // Réponses toutes faites (trains, météo) : dites telles quelles, sans repasser par le modèle.
+          const ready: string[] = [];
+          let allReady = true;
           for (const call of calls) {
             if (signal.aborted) break;
             let output: string;
@@ -408,8 +411,24 @@ export function createLocalVoiceAdapter(
               const result = await web.run(call.name, call.args);
               notify({ type: 'web_search', id: call.id, active: false, sources: result.sources });
               output = result.output;
-            } else output = await runTool(call.name, call.args);
+              if (result.speech) ready.push(result.speech);
+              else allReady = false;
+            } else {
+              output = await runTool(call.name, call.args);
+              allReady = false;
+            }
             history.push({ role: 'tool', tool_call_id: call.id, content: output.slice(0, 12_000) });
+          }
+          if (allReady && ready.length && !signal.aborted) {
+            const answer = ready.join(' ');
+            notify({ type: 'state', state: 'speaking' });
+            for (const sentence of takeSentences(answer, true).sentences) {
+              if (signal.aborted) break;
+              await speak(sentence, signal).catch(() => {});
+            }
+            spoken += (spoken ? ' ' : '') + answer;
+            history.push({ role: 'assistant', content: answer });
+            break;
           }
         }
         // Trop de tours d'outils : on demande la réponse avec ce qui a été trouvé.

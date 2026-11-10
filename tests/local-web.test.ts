@@ -9,6 +9,7 @@ import {
   isWebTool,
   promisesSearch,
   searchNotice,
+  trainSpeech,
 } from '../server/voice/local-web.js';
 import type { VoiceEvent } from '../server/voice/provider.js';
 
@@ -123,6 +124,10 @@ test('train_belgium formats iRail connections in Belgian time', async () => {
     /train de 20 h 25 .*voie 4, direct, arrivée à Bruxelles-Midi à 21 h 16, durée 51 minutes, 2 minutes de retard/u,
   );
   assert.equal(connection.departureDelayMin, 2);
+  assert.equal(
+    result.speech,
+    'D’après la SNCB, le train de 20 h 25 part de Charleroi-Central, voie 4, direct, et arrive à Bruxelles-Midi à 21 h 16 : 51 minutes de trajet, annoncé avec 2 minutes de retard.',
+  );
   assert.equal(connection.train, 'IC 4520');
 });
 
@@ -238,4 +243,99 @@ test('a promise to search without a tool call is spotted', () => {
   assert.ok(promisesSearch('Un instant, je vais vérifier.'));
   assert.ok(!promisesSearch('Il faut cinquante et une minutes.'));
   assert.equal(searchNotice('train_belgium'), 'Je regarde les horaires de la SNCB.');
+});
+
+test('trainSpeech gives the two useful trains and the cancelled ones', () => {
+  const base = {
+    date: 'mardi 10 novembre',
+    departureStation: 'Charleroi-Central',
+    arrivalStation: 'Bruxelles-Midi',
+    departureDelayMin: 0,
+    changes: 0,
+  };
+  const trains = [
+    { ...base, departure: '20:54', arrival: '21:45', duration: '51 minutes', canceled: true },
+    { ...base, departure: '21:54', arrival: '22:45', duration: '51 minutes', platform: '4' },
+    { ...base, departure: '22:25', arrival: '23:17', duration: '53 minutes' },
+    { ...base, departure: '22:39', arrival: '00:27', duration: '1 heure 48', changes: 1 },
+  ];
+  assert.equal(
+    trainSpeech(trains, { today: 'mardi 10 novembre' }),
+    'D’après la SNCB, le train de 21 h 54 part de Charleroi-Central, voie 4, direct, et arrive à Bruxelles-Midi à 22 h 45 : 51 minutes de trajet. Le suivant part à 22 h 25 et arrive à 23 h 17, direct, 53 minutes. Attention, le train de 20 h 54 est supprimé.',
+  );
+  assert.match(
+    trainSpeech(trains.slice(1, 3), { arriveBy: true, today: 'mardi 10 novembre' }),
+    /^D’après la SNCB, le train de 22 h 25 .* Le précédent part à 21 h 54/u,
+  );
+  assert.match(
+    trainSpeech(trains.slice(0, 1), { today: 'x' }),
+    /Tous les trains trouvés sont supprimés/u,
+  );
+});
+
+test('a ready-made answer is spoken as is, without asking the model again', async () => {
+  let llmCalls = 0;
+  const spokenTexts: string[] = [];
+  const fakeFetch = (async (url: string | URL, init?: RequestInit) => {
+    const path = String(url);
+    if (path.endsWith('/health') || path.endsWith('/warmup')) return Response.json({ ok: true });
+    if (path.endsWith('/stt')) return Response.json({ text: 'Le train pour Bruxelles ?' });
+    if (path.endsWith('/tts')) {
+      spokenTexts.push(JSON.parse(String(init?.body)).text);
+      return new Response(new Uint8Array(3200));
+    }
+    if (path.endsWith('/chat/completions')) {
+      const body = JSON.parse(String(init?.body));
+      if (body.max_tokens === 1) return Response.json({ choices: [] });
+      llmCalls++;
+      const chunk = {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: 't1', function: { name: 'train_belgium', arguments: '{}' } },
+              ],
+            },
+          },
+        ],
+      };
+      return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`);
+    }
+    throw new Error(path);
+  }) as typeof fetch;
+  const web = createWebTools(fakeFetch, publicResolver, fixedNow);
+  const events: VoiceEvent[] = [];
+  const adapter = createLocalVoiceAdapter(
+    { llmBaseUrl: 'http://llm/v1', llmModel: 'm', voiceUrl: 'http://voice' },
+    fakeFetch,
+    {
+      ...web,
+      run: async () => ({
+        output: '{}',
+        sources: [],
+        speech: 'D’après la SNCB, le train de 21 h 54 arrive à 22 h 45. Le suivant part à 22 h 25.',
+      }),
+    },
+  );
+  const connection = await adapter.connect(
+    { instructions: 'sys', tools: [], webSearch: true },
+    (event) => events.push(event),
+  );
+  const tone = (ms: number, amplitude: number) => {
+    const pcm = Buffer.alloc(32 * ms);
+    for (let i = 0; i < pcm.length / 2; i++)
+      pcm.writeInt16LE(Math.round(Math.sin(i / 5) * amplitude), i * 2);
+    return pcm;
+  };
+  const pcm = Buffer.concat([tone(300, 20), tone(800, 8000), tone(900, 20)]);
+  for (let offset = 0; offset < pcm.length; offset += 640)
+    connection.audio(pcm.subarray(offset, offset + 640));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assert.equal(llmCalls, 1);
+  assert.ok(spokenTexts.includes('D’après la SNCB, le train de 21 h 54 arrive à 22 h 45.'));
+  const answer = events.find((event) => event.type === 'assistant_transcript');
+  assert.ok(answer?.type === 'assistant_transcript');
+  assert.match(answer.text, /^D’après la SNCB, le train de 21 h 54/u);
+  await connection.close();
 });

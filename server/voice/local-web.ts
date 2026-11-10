@@ -26,6 +26,11 @@ export interface WebToolResult {
   /** Texte rendu au modèle (déjà tronqué). */
   output: string;
   sources: { url: string; title: string }[];
+  /**
+   * Réponse orale toute faite (trains, météo) : Cornelius la dit telle quelle au lieu de laisser le
+   * modèle la reformuler, parce qu'un petit modèle déforme les heures et les durées en les recopiant.
+   */
+  speech?: string;
 }
 
 const USER_AGENT =
@@ -395,6 +400,52 @@ export function promisesSearch(text: string): boolean {
 }
 
 /** Les trajets en phrases à dire, chiffres déjà exacts. */
+type SpokenConnection = Parameters<typeof trainSummary>[0][number];
+
+const spokenTime = (time: string) => time.replace(':', ' h ').replace(/ h 00$/u, ' h');
+
+/**
+ * La réponse orale aux horaires : les deux trains les plus utiles (les prochains, ou les derniers
+ * qui arrivent à temps), et les trains supprimés parmi eux.
+ */
+export function trainSpeech(
+  connections: SpokenConnection[],
+  { arriveBy = false, today = '' }: { arriveBy?: boolean; today?: string } = {},
+): string {
+  if (!connections.length) return 'Je n’ai trouvé aucun train pour ce trajet.';
+  const ordered = arriveBy ? [...connections].reverse() : connections;
+  const picked = ordered.filter((connection) => !connection.canceled).slice(0, 2);
+  const canceled = ordered
+    .slice(0, ordered.indexOf(picked.at(-1) ?? ordered[0]!) + 1)
+    .filter((connection) => connection.canceled);
+  const day = (connection: SpokenConnection) =>
+    connection.date === today ? '' : `le ${connection.date}, `;
+  const changes = (connection: SpokenConnection) =>
+    connection.changes
+      ? `avec ${connection.changes === 1 ? 'une correspondance' : `${connection.changes} correspondances`}${connection.via?.length ? ` à ${connection.via.join(', ')}` : ''}`
+      : 'direct';
+  const delay = (connection: SpokenConnection) =>
+    connection.departureDelayMin
+      ? `, annoncé avec ${connection.departureDelayMin} minute${connection.departureDelayMin > 1 ? 's' : ''} de retard`
+      : '';
+  const sentences: string[] = [];
+  const [first, second] = picked;
+  if (first)
+    sentences.push(
+      `D’après la SNCB, ${day(first)}le train de ${spokenTime(first.departure)} part de ${first.departureStation}${first.platform ? `, voie ${first.platform}` : ''}, ${changes(first)}, et arrive à ${first.arrivalStation} à ${spokenTime(first.arrival)} : ${first.duration} de trajet${delay(first)}.`,
+    );
+  if (second)
+    sentences.push(
+      `${arriveBy ? 'Le précédent' : 'Le suivant'} part ${second.date === first?.date ? '' : day(second)}à ${spokenTime(second.departure)} et arrive à ${spokenTime(second.arrival)}, ${changes(second)}, ${second.duration}${delay(second)}.`,
+    );
+  if (canceled.length)
+    sentences.push(
+      `Attention, ${canceled.length === 1 ? `le train de ${spokenTime(canceled[0]!.departure)} est supprimé` : `les trains de ${canceled.map((connection) => spokenTime(connection.departure)).join(' et de ')} sont supprimés`}.`,
+    );
+  if (!picked.length) sentences.push('Tous les trains trouvés sont supprimés.');
+  return sentences.join(' ');
+}
+
 export function trainSummary(
   connections: {
     date: string;
@@ -411,7 +462,6 @@ export function trainSummary(
   }[],
 ): string {
   if (!connections.length) return 'Aucun train trouvé pour ce trajet.';
-  const spokenTime = (time: string) => time.replace(':', ' h ').replace(/ h 00$/u, ' h');
   return connections
     .map((connection) => {
       const head = `Le ${connection.date}, train de ${spokenTime(connection.departure)} depuis ${connection.departureStation}`;
@@ -752,6 +802,15 @@ export function createWebTools(
         connections,
       }),
       sources: [{ url: 'https://www.belgiantrain.be/', title: 'SNCB via iRail' }],
+      speech: trainSpeech(connections, {
+        arriveBy: Boolean(args.arrive_by && time),
+        today: new Intl.DateTimeFormat('fr-BE', {
+          timeZone: TIME_ZONE,
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        }).format(now()),
+      }),
     };
   }
 
@@ -813,6 +872,7 @@ export function createWebTools(
         })),
       }),
       sources: [{ url: 'https://open-meteo.com/', title: 'Open-Meteo' }],
+      speech: `D’après Open-Meteo, ${summary.charAt(0).toLowerCase()}${summary.slice(1)}`,
     };
   }
 
