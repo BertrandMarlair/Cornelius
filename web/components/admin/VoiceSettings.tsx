@@ -52,8 +52,10 @@ export function VoiceSettings({ state, run }: { state: MirrorState; run: RunActi
         </Field>
         {state.voiceProvider === 'local' ? (
           <p className="text-sm text-muted-foreground">
-            Tout reste à la maison : Whisper écoute, le modèle Ollama répond et Piper parle. Réglé
-            dans .env (CORNELIUS_LOCAL_VOICE).
+            Whisper écoute, le modèle Ollama répond et Piper parle, sur cette machine. Avec la
+            recherche web activée, seules les recherches sortent : Yahoo ou Brave, Wikipédia,
+            Google Actualités, iRail (trains SNCB) et Open-Meteo. Réglé dans .env
+            (CORNELIUS_LOCAL_VOICE).
           </p>
         ) : state.voiceProvider === 'mistral' ? (
           <p className="text-sm text-muted-foreground">

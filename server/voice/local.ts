@@ -1,3 +1,4 @@
+import { createWebTools, isWebTool } from './local-web.js';
 import type { VoiceConnection, VoiceEvent, VoiceProviderAdapter } from './provider.js';
 
 /**
@@ -5,6 +6,9 @@ import type { VoiceConnection, VoiceEvent, VoiceProviderAdapter } from './provid
  *
  *   micro (PCM16 16 kHz) → détection de la parole → Whisper (sidecar /stt)
  *     → modèle compatible OpenAI (Ollama, outils compris) → Piper (sidecar /tts) → haut-parleur
+ *
+ * Seule exception, quand la recherche web est activée : les outils Internet de `local-web.ts`
+ * interrogent des sources publiques (recherche, Wikipédia, actualités, trains SNCB, météo).
  *
  * Le sidecar vocal est `local_voice/voice_server.py`. Ollama sert le modèle.
  */
@@ -25,7 +29,7 @@ const END_SILENCE_MS = 700;
 const MIN_SPEECH_MS = 250;
 const MAX_UTTERANCE_MS = 15_000;
 const ECHO_GUARD_MS = 350;
-const MAX_TOOL_ROUNDS = 6;
+const MAX_TOOL_ROUNDS = 10;
 const MAX_HISTORY = 24;
 
 export function localVoiceSettingsFromEnv(
@@ -171,6 +175,7 @@ export function speakable(text: string): string {
 export function createLocalVoiceAdapter(
   settings: LocalVoiceSettings,
   fetchImpl: typeof fetch = fetch,
+  web: ReturnType<typeof createWebTools> = createWebTools(fetchImpl),
 ): VoiceProviderAdapter {
   return {
     async connect(configuration, emit): Promise<VoiceConnection> {
@@ -226,10 +231,20 @@ export function createLocalVoiceAdapter(
         return String(data.text ?? '').trim();
       };
 
+      const usesWeb = (name: string) =>
+        config.webSearch && isWebTool(name) && !config.tools.some((tool) => tool.name === name);
+
       const tools = () =>
-        config.tools.map((tool) => ({
+        [
+          ...config.tools,
+          ...(config.webSearch ? web.tools.filter((t) => usesWeb(t.name)) : []),
+        ].map((tool) => ({
           type: 'function' as const,
-          function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+          },
         }));
 
       const runTool = (name: string, args: string) =>
@@ -245,9 +260,12 @@ export function createLocalVoiceAdapter(
         });
 
       /** Un appel au modèle, en flux : la voix démarre dès la première phrase. */
-      const complete = async (signal: AbortSignal, speakText: boolean) => {
+      const complete = async (signal: AbortSignal, speakText: boolean, allowTools = true) => {
         const messages: ChatMessage[] = [
-          { role: 'system', content: config.instructions },
+          {
+            role: 'system',
+            content: config.instructions + (config.webSearch ? web.instructions() : ''),
+          },
           ...history.slice(-MAX_HISTORY),
         ];
         const response = await fetchImpl(`${settings.llmBaseUrl}/chat/completions`, {
@@ -259,7 +277,7 @@ export function createLocalVoiceAdapter(
             stream: true,
             temperature: 0.4,
             messages,
-            ...(config.tools.length ? { tools: tools() } : {}),
+            ...(allowTools && tools().length ? { tools: tools() } : {}),
           }),
         });
         if (!response.ok || !response.body)
@@ -358,8 +376,23 @@ export function createLocalVoiceAdapter(
           });
           notify({ type: 'state', state: 'thinking' });
           for (const call of calls) {
-            const output = await runTool(call.name, call.args);
+            if (signal.aborted) break;
+            let output: string;
+            if (usesWeb(call.name)) {
+              notify({ type: 'web_search', id: call.id, active: true });
+              const result = await web.run(call.name, call.args);
+              notify({ type: 'web_search', id: call.id, active: false, sources: result.sources });
+              output = result.output;
+            } else output = await runTool(call.name, call.args);
             history.push({ role: 'tool', tool_call_id: call.id, content: output.slice(0, 12_000) });
+          }
+        }
+        // Trop de tours d'outils : on demande la réponse avec ce qui a été trouvé.
+        if (!signal.aborted && history.at(-1)?.role === 'tool') {
+          const { text } = await complete(signal, true, false);
+          if (text) {
+            spoken += (spoken ? ' ' : '') + text;
+            history.push({ role: 'assistant', content: text });
           }
         }
         if (spoken && !signal.aborted)
