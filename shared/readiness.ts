@@ -92,13 +92,23 @@ export function readinessChecklist(input: ReadinessInput): ReadinessItem[] {
       ? {
           id: 'openai-key',
           status: 'done',
-          title: state.voiceProvider === 'mistral' ? 'Clé Mistral' : 'Clé OpenAI',
+          title:
+            state.voiceProvider === 'local'
+              ? 'Service vocal local'
+              : state.voiceProvider === 'mistral'
+                ? 'Clé Mistral'
+                : 'Clé OpenAI',
           detail: 'Renseignée. Elle reste sur cet ordinateur.',
         }
       : {
           id: 'openai-key',
           status: 'todo',
-          title: state.voiceProvider === 'mistral' ? 'Clé Mistral' : 'Clé OpenAI',
+          title:
+            state.voiceProvider === 'local'
+              ? 'Service vocal local'
+              : state.voiceProvider === 'mistral'
+                ? 'Clé Mistral'
+                : 'Clé OpenAI',
           detail:
             'Sans elle, Cornelius ne peut pas parler. Collez-la plus bas, dans « Clés et jetons » : elle compte tout de suite.',
           action: { kind: 'doc', path: 'docs/installation/premier-demarrage.md' },

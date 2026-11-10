@@ -690,12 +690,18 @@ export class SessionPreferences {
     this.db.prepare('UPDATE live_preferences SET delegation_model = ? WHERE id = 1').run(model);
   }
   getVoiceProvider(): VoiceProvider {
+    // Le fournisseur local se choisit dans .env (CORNELIUS_LOCAL_VOICE=1) : pas de migration.
+    if (
+      ['1', 'true', 'oui'].includes(String(process.env.CORNELIUS_LOCAL_VOICE ?? '').toLowerCase())
+    )
+      return 'local';
     const value = this.db
       .prepare('SELECT provider FROM voice_provider_preferences WHERE id = 1')
       .get()?.provider;
     return isVoiceProvider(value) ? value : 'openai';
   }
   setVoiceProvider(provider: VoiceProvider): void {
+    if (provider === 'local') return;
     this.db
       .prepare('UPDATE voice_provider_preferences SET provider = ? WHERE id = 1')
       .run(provider);

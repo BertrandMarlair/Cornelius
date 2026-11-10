@@ -6,6 +6,7 @@ import {
 } from './custom-provider.js';
 import { isVoiceProvider } from '../shared/voice-provider.js';
 import { createVoiceGateway } from './voice/live-bridge.js';
+import { createLocalVoiceAdapter, localVoiceSettingsFromEnv } from './voice/local.js';
 import { createMistralMemoryExtractor } from './voice/memory-extractor.js';
 import { isCardSettings } from '../shared/cards.js';
 import { isLiveVoice } from '../shared/voices.js';
@@ -319,12 +320,19 @@ export async function createApp(
   const alarmTools = new AlarmTools(alarms, now);
   const agents = new Agents(new AgentRepository(db, now), new HermesClient(http, now), now);
   const initialKey = openaiKey();
+  const localVoice = localVoiceSettingsFromEnv();
   const selectedVoiceKey = () =>
-    secretStore.get(
-      preferences.getVoiceProvider() === 'mistral' ? 'MISTRAL_API_KEY' : 'OPENAI_API_KEY',
-    );
+    preferences.getVoiceProvider() === 'local'
+      ? localVoice
+        ? 'local'
+        : undefined
+      : secretStore.get(
+          preferences.getVoiceProvider() === 'mistral' ? 'MISTRAL_API_KEY' : 'OPENAI_API_KEY',
+        );
   const voiceGateway = () => {
     const key = selectedVoiceKey();
+    if (key && localVoice && preferences.getVoiceProvider() === 'local')
+      return createVoiceGateway(createLocalVoiceAdapter(localVoice));
     return !key
       ? null
       : preferences.getVoiceProvider() === 'mistral'
@@ -403,7 +411,9 @@ export async function createApp(
       ? 'Connexions IA bloquées par l’administration'
       : initialVoiceKey
         ? 'Clé vocale configurée ; connexion uniquement au démarrage d’une session'
-        : `Clé ${initialProvider === 'mistral' ? 'Mistral' : 'OpenAI'} absente`,
+        : initialProvider === 'local'
+          ? 'Fournisseur vocal local mal configuré'
+          : `Clé ${initialProvider === 'mistral' ? 'Mistral' : 'OpenAI'} absente`,
   );
   const controller = new SessionController(profiles, live, now, preferences, (name, details) =>
     logs.write('info', 'mesure', name, details),
@@ -1575,6 +1585,10 @@ export async function createApp(
         return reply
           .code(409)
           .send({ error: 'Terminez la conversation avant de changer de fournisseur.' });
+      if (provider === 'local' || preferences.getVoiceProvider() === 'local')
+        return reply.code(400).send({
+          error: 'Le fournisseur local est imposé par CORNELIUS_LOCAL_VOICE dans .env.',
+        });
       if (!secretStore.get(provider === 'mistral' ? 'MISTRAL_API_KEY' : 'OPENAI_API_KEY'))
         return reply.code(400).send({
           error: 'Ajoutez d’abord la clé de ce fournisseur dans Mise en route → Clés et jetons.',

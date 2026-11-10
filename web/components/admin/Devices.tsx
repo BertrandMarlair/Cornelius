@@ -1,3 +1,4 @@
+import { usesServerAudio } from '../../../shared/voice-provider';
 import { useState } from 'react';
 import { ScanFace, SlidersHorizontal } from 'lucide-react';
 import { PresenceTimingSettings } from './PresenceTimingSettings';
@@ -68,7 +69,7 @@ export function Devices({
       >
         <AdvancedAudioBuffer state={state} run={run} />
         <PresenceTimingSettings status={status} run={run} />
-        {state.voiceProvider !== 'mistral' && <DelegationSettings state={state} run={run} />}
+        {!usesServerAudio(state.voiceProvider) && <DelegationSettings state={state} run={run} />}
       </CollapsibleSection>
       <p className="text-xs text-muted-foreground">
         Ces réglages sont enregistrés sur le serveur et conservés après un redémarrage.

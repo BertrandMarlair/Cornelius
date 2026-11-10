@@ -50,7 +50,12 @@ export function VoiceSettings({ state, run }: { state: MirrorState; run: RunActi
             ))}
           </NativeSelect>
         </Field>
-        {state.voiceProvider === 'mistral' ? (
+        {state.voiceProvider === 'local' ? (
+          <p className="text-sm text-muted-foreground">
+            Tout reste à la maison : Whisper écoute, le modèle Ollama répond et Piper parle. Réglé
+            dans .env (CORNELIUS_LOCAL_VOICE).
+          </p>
+        ) : state.voiceProvider === 'mistral' ? (
           <p className="text-sm text-muted-foreground">
             Voxtral 3 écoute et répond en français avec la voix Marie. La clé OpenAI reste
             disponible pour les images.
