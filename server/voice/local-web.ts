@@ -332,7 +332,9 @@ function formatDuration(seconds: number): string {
   const minutes = Math.round(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return hours ? `${hours} h ${String(rest).padStart(2, '0')}` : `${minutes} min`;
+  return hours
+    ? `${hours} heure${hours > 1 ? 's' : ''}${rest ? ` ${rest}` : ''}`
+    : `${minutes} minutes`;
 }
 
 const WEATHER_CODES: Record<number, string> = {
@@ -390,6 +392,40 @@ export function promisesSearch(text: string): boolean {
   return /\b(je (regarde|cherche|vérifie|consulte|vais (regarder|chercher|vérifier|consulter))|un (instant|moment)|laisse[- ]moi)\b/iu.test(
     text,
   );
+}
+
+/** Les trajets en phrases à dire, chiffres déjà exacts. */
+export function trainSummary(
+  connections: {
+    date: string;
+    departure: string;
+    departureStation: string;
+    platform?: string;
+    departureDelayMin: number;
+    arrival: string;
+    arrivalStation: string;
+    duration: string;
+    changes: number;
+    via?: string[];
+    canceled?: boolean;
+  }[],
+): string {
+  if (!connections.length) return 'Aucun train trouvé pour ce trajet.';
+  const spokenTime = (time: string) => time.replace(':', ' h ').replace(/ h 00$/u, ' h');
+  return connections
+    .map((connection) => {
+      const head = `Le ${connection.date}, train de ${spokenTime(connection.departure)} depuis ${connection.departureStation}`;
+      if (connection.canceled) return `${head} : supprimé.`;
+      const changes = connection.changes
+        ? `${connection.changes === 1 ? 'une correspondance' : `${connection.changes} correspondances`}${connection.via?.length ? ` à ${connection.via.join(', ')}` : ''}`
+        : 'direct';
+      const delay = connection.departureDelayMin
+        ? `, ${connection.departureDelayMin} minutes de retard`
+        : '';
+      const platform = connection.platform ? `, voie ${connection.platform}` : '';
+      return `${head}${platform}, ${changes}, arrivée à ${connection.arrivalStation} à ${spokenTime(connection.arrival)}, durée ${connection.duration}${delay}.`;
+    })
+    .join(' ');
 }
 
 export function createWebTools(
@@ -709,7 +745,12 @@ export function createWebTools(
       canceled: connection.departure.canceled === '1' || undefined,
     }));
     return {
-      output: JSON.stringify({ source: 'iRail (horaires SNCB en temps réel)', connections }),
+      output: JSON.stringify({
+        source: 'iRail (horaires SNCB en temps réel)',
+        // Phrases toutes faites : un petit modèle recopie mieux qu'il ne calcule.
+        summary: trainSummary(connections),
+        connections,
+      }),
       sources: [{ url: 'https://www.belgiantrain.be/', title: 'SNCB via iRail' }],
     };
   }
@@ -743,9 +784,21 @@ export function createWebTools(
       `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=${count}`,
     );
     const daily = forecast.daily;
+    const placeName = [location.name, location.admin1, location.country].filter(Boolean).join(', ');
+    const summary = [
+      forecast.current &&
+        `En ce moment à ${location.name} : ${Math.round(forecast.current.temperature_2m)} degrés, ${WEATHER_CODES[forecast.current.weather_code] ?? 'temps inconnu'}.`,
+      ...(daily?.time.map(
+        (day, index) =>
+          `${new Intl.DateTimeFormat('fr-BE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))} : ${WEATHER_CODES[daily.weather_code[index] ?? -1] ?? 'temps inconnu'}, de ${Math.round(daily.temperature_2m_min[index] ?? 0)} à ${Math.round(daily.temperature_2m_max[index] ?? 0)} degrés, ${daily.precipitation_probability_max[index] ?? 0} % de risque de pluie.`,
+      ) ?? []),
+    ]
+      .filter(Boolean)
+      .join(' ');
     return {
       output: JSON.stringify({
-        place: [location.name, location.admin1, location.country].filter(Boolean).join(', '),
+        summary,
+        place: placeName,
         now: forecast.current && {
           temperature: forecast.current.temperature_2m,
           sky: WEATHER_CODES[forecast.current.weather_code],
@@ -823,8 +876,8 @@ export function createWebTools(
     return `
 
 Date et heure actuelles : ${today} (${iso}), heure de Belgique.
-Accès à Internet : tu peux chercher toi-même sur Internet avec les outils web_search, web_read, wikipedia, news, train_belgium et weather_place. Ne réponds jamais de mémoire à une question factuelle dont tu n’es pas certain (chiffre, date, horaire, prix, personne, actualité, résultat sportif) : vérifie d’abord. Choisis l’outil le plus précis : train_belgium pour un train ou un trajet en train en Belgique (gares SNCB, par exemple « Charleroi-Central », « Bruxelles-Central », « Bruxelles-Midi »), weather_place pour la météo d’une autre ville, wikipedia pour la culture générale, news pour l’actualité, web_search pour le reste. Tu peux enchaîner plusieurs recherches : si les extraits ne suffisent pas, lis la page la plus fiable avec web_read, ou reformule la recherche. Croise deux sources quand c’est important. Prends le temps qu’il faut pour avoir une réponse juste et riche.
-N’annonce pas la recherche et ne fais pas patienter : appelle directement l’outil, sans rien dire avant (Cornelius prévient lui-même la personne qu’il cherche). Cette règle prime sur les consignes qui demandent de meubler l’attente. Une fois les résultats reçus, donne la réponse à l’oral en quelques phrases naturelles, avec les chiffres utiles, sans lire d’adresse web ni de liste à puces ; cite la source en un mot si c’est utile (« d’après la SNCB… »). Si rien de fiable n’est trouvé, dis-le simplement.`;
+Accès à Internet : tu peux chercher toi-même sur Internet avec les outils web_search, web_read, wikipedia, news, train_belgium et weather_place. Ne réponds jamais de mémoire à une question factuelle dont tu n’es pas certain (chiffre, date, horaire, prix, personne, actualité, résultat sportif) : vérifie d’abord. Choisis l’outil le plus précis : train_belgium pour un train ou un trajet en train en Belgique (gares SNCB, par exemple « Charleroi-Central », « Bruxelles-Central », « Bruxelles-Midi »), weather_place pour la météo d’une autre ville, wikipedia pour la culture générale, news pour l’actualité, web_search pour le reste. Tu peux enchaîner plusieurs recherches : si les extraits ne suffisent pas, lis la page la plus fiable avec web_read, ou reformule la recherche. Croise deux sources quand c’est important. Quand un résultat contient un champ summary, reprends ses heures, durées et chiffres exactement, sans les recalculer ni les arrondir. Prends le temps qu’il faut pour avoir une réponse juste et riche.
+N’annonce pas la recherche et ne fais pas patienter : appelle directement l’outil, sans rien dire avant (Cornelius prévient lui-même la personne qu’il cherche). Cette règle prime sur les consignes qui demandent de meubler l’attente. Une fois les résultats reçus, donne la réponse à l’oral en deux à cinq phrases naturelles, l’essentiel d’abord, avec les chiffres utiles, sans lire d’adresse web ni de liste à puces ; cite la source en un mot si c’est utile (« d’après la SNCB… »). Si rien de fiable n’est trouvé, dis-le simplement.`;
   }
 
   return { run, instructions, tools: WEB_TOOLS };

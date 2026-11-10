@@ -117,7 +117,11 @@ test('train_belgium formats iRail connections in Belgian time', async () => {
   const [connection] = JSON.parse(result.output).connections;
   assert.equal(connection.departure, '20:25');
   assert.equal(connection.arrival, '21:16');
-  assert.equal(connection.duration, '51 min');
+  assert.equal(connection.duration, '51 minutes');
+  assert.match(
+    JSON.parse(result.output).summary,
+    /train de 20 h 25 .*voie 4, direct, arrivée à Bruxelles-Midi à 21 h 16, durée 51 minutes, 2 minutes de retard/u,
+  );
   assert.equal(connection.departureDelayMin, 2);
   assert.equal(connection.train, 'IC 4520');
 });
