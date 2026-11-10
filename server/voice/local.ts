@@ -17,6 +17,8 @@ export interface LocalVoiceSettings {
   llmBaseUrl: string;
   llmModel: string;
   llmApiKey?: string;
+  /** `reasoning_effort` envoyé au modèle (`none` coupe la réflexion de Qwen 3 : réponse plus rapide). */
+  llmReasoning?: string;
   /** Sidecar vocal : POST /stt et POST /tts. */
   voiceUrl: string;
 }
@@ -41,6 +43,7 @@ export function localVoiceSettingsFromEnv(
     llmBaseUrl: (env.CORNELIUS_LOCAL_LLM_URL || 'http://127.0.0.1:11434/v1').replace(/\/+$/u, ''),
     llmModel: env.CORNELIUS_LOCAL_LLM_MODEL || 'qwen3:4b-instruct',
     llmApiKey: env.CORNELIUS_LOCAL_LLM_KEY || undefined,
+    llmReasoning: env.CORNELIUS_LOCAL_LLM_REASONING || undefined,
     voiceUrl: (env.CORNELIUS_LOCAL_VOICE_URL || 'http://127.0.0.1:8765').replace(/\/+$/u, ''),
   };
 }
@@ -276,6 +279,7 @@ export function createLocalVoiceAdapter(
             model: settings.llmModel,
             stream: true,
             temperature: 0.4,
+            ...(settings.llmReasoning ? { reasoning_effort: settings.llmReasoning } : {}),
             messages,
             ...(allowTools && tools().length ? { tools: tools() } : {}),
           }),
@@ -494,6 +498,7 @@ export function createLocalVoiceAdapter(
         body: JSON.stringify({
           model: settings.llmModel,
           max_tokens: 1,
+          ...(settings.llmReasoning ? { reasoning_effort: settings.llmReasoning } : {}),
           messages: [{ role: 'user', content: 'ok' }],
         }),
       }).catch(() => {});
