@@ -431,6 +431,19 @@ export function createLocalVoiceAdapter(
         emit({ type: 'closed' });
       };
 
+      // Préchauffage : le modèle et Whisper se chargent pendant que la personne commence à parler,
+      // plutôt qu'après sa première phrase (Ollama les décharge quand ils ne servent pas).
+      void fetchImpl(`${settings.llmBaseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: settings.llmModel,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ok' }],
+        }),
+      }).catch(() => {});
+      void fetchImpl(`${settings.voiceUrl}/warmup`, { method: 'POST' }).catch(() => {});
+
       // Le service vocal doit répondre avant d'ouvrir la conversation.
       const health = await fetchImpl(`${settings.voiceUrl}/health`).catch(() => null);
       if (!health?.ok) throw new Error('Service vocal local injoignable.');

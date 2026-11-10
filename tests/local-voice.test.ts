@@ -61,11 +61,13 @@ test('a spoken turn runs a tool then answers', async () => {
   const fakeFetch = (async (url: string | URL, init?: RequestInit) => {
     const path = String(url);
     if (path.endsWith('/health')) return new Response('{"ok":true}');
+    if (path.endsWith('/warmup')) return new Response('{"ok":true}');
     if (path.endsWith('/stt')) return Response.json({ text: 'Allume la cuisine' });
     if (path.endsWith('/tts')) return new Response(new Uint8Array(3200));
     if (path.endsWith('/chat/completions')) {
-      llmCalls++;
       const body = JSON.parse(String(init?.body));
+      if (body.max_tokens === 1) return Response.json({ choices: [] });
+      llmCalls++;
       const chunks =
         llmCalls === 1
           ? [
