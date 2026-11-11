@@ -1,8 +1,13 @@
 import { readFileSync } from 'node:fs';
 import type { MachineStatus } from '../shared/types.js';
 
-/** Largeur de l’image où une petite machine cherche les visages ; la reconnaissance garde l’image entière. */
-export const SMALL_MACHINE_DETECTION_WIDTH = 640;
+/**
+ * Largeur de l’image où chercher les visages, sur toutes les machines. YuNet est entraîné
+ * pour ~640 px : sur une image 1080p, un visage proche tombait sous le seuil de détection
+ * (0,73-0,80 au lieu de 0,92-0,94) et des doublons fantômes apparaissaient. La
+ * reconnaissance, elle, reste faite sur l’image entière.
+ */
+export const FACE_DETECTION_WIDTH = 640;
 
 /** Raison affichée là où la vision et le générateur d’images locaux sont retirés. */
 export function smallMachineReason(machine: MachineStatus): string {

@@ -63,7 +63,7 @@ import {
 import { PerceptionBridge } from './perception.js';
 import { ModelDownloads, type ModelLauncher } from './model-downloads.js';
 import { VisionBridge } from './vision.js';
-import { SMALL_MACHINE_DETECTION_WIDTH, smallMachineReason } from './machine.js';
+import { FACE_DETECTION_WIDTH, smallMachineReason } from './machine.js';
 import { registerHardware } from './hardware.js';
 import { WakeArbiter } from './wake-arbiter.js';
 import { SatelliteStore } from './satellites-store.js';
@@ -507,8 +507,8 @@ export async function createApp(
         kiosk.socket.send(JSON.stringify(perception.browserCameraConfig()));
     },
     now,
-    // Raspberry Pi : les visages sont cherchés sur une image réduite, reconnus sur l’image entière.
-    config.machine?.small ? SMALL_MACHINE_DETECTION_WIDTH : null,
+    // Visages cherchés sur une image réduite (fiable et léger), reconnus sur l’image entière.
+    FACE_DETECTION_WIDTH,
   );
   // Miroir et satellites entendent parfois le même « Cornelius » : le meilleur score l’emporte.
   const wakeArbiter = new WakeArbiter(() => perception.wakeStreamCount());

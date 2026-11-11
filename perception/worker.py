@@ -190,7 +190,12 @@ class Worker:
                     "threshold": self.recognition_threshold, "faces": self.live_faces(embeddings),
                 }))
             enrollment = self.enrollment
-            if enrollment and enrollment.request["expiresAt"] > captured:
+            # Une image n’est comptée qu’une fois : la boucle tourne à 10 Hz, la caméra du
+            # navigateur peut être plus lente, et une même mauvaise image relue pendant une
+            # seconde dépassait le délai de grâce et faisait recommencer l’étape.
+            fresh = captured != getattr(self, "enrolled_frame", None)
+            if enrollment and fresh and enrollment.request["expiresAt"] > captured:
+                self.enrolled_frame = captured
                 templates = enrollment.add(embeddings, time.monotonic())
                 if templates:
                     await socket.send(json.dumps({"type": "enrolled", "id": enrollment.request["id"], "templates": templates}))

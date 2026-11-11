@@ -1791,7 +1791,7 @@ test('sur Raspberry Pi, ni vision ni images locales, et les visages sont cherch�
   assert.ok(!messages.some((message) => message.type === 'vision_warm'));
 });
 
-test('sur un PC, les visages sont cherchés sur l’image entière', async (t) => {
+test('sur un PC aussi, les visages sont cherchés sur une image de 640 px', async (t) => {
   const f = await fixture(t);
   const messages: { type: string; detectionWidth?: unknown }[] = [];
   const worker = await f.app.injectWS(
@@ -1801,7 +1801,7 @@ test('sur un PC, les visages sont cherchés sur l’image entière', async (t) =
   );
   f.sockets.push(worker);
   await setImmediate();
-  assert.equal(messages.find((message) => message.type === 'profiles')?.detectionWidth, null);
+  assert.equal(messages.find((message) => message.type === 'profiles')?.detectionWidth, 640);
   const headers = { origin, cookie: await f.login() };
   const devices = (await f.app.inject({ url: '/api/admin/devices', headers })).json();
   assert.equal(devices.machine, undefined);
