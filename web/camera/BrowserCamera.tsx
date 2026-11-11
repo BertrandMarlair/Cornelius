@@ -23,7 +23,8 @@ export function BrowserCamera({
     let disposed = false;
     let stream: MediaStream | null = null;
     let socket: WebSocket | null = null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let ticker: Worker | null = null;
+    let imageCapture: { grabFrame(): Promise<ImageBitmap> } | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let connectTimer: ReturnType<typeof setTimeout> | undefined;
     let encoding = false;
@@ -71,49 +72,69 @@ export function BrowserCamera({
     };
     const tick = () => {
       if (disposed) return;
-      timer = setTimeout(tick, 100);
       if (awaiting && Date.now() - awaiting.at > 5000) return void socket?.close();
       if (
         !context ||
         encoding ||
         awaiting ||
-        video.readyState < 2 ||
+        (!imageCapture && video.readyState < 2) ||
         socket?.readyState !== WebSocket.OPEN ||
         socket.bufferedAmount > 0
       )
         return;
-      const scale = Math.min(1, width / video.videoWidth, height / video.videoHeight);
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const current = socket;
       encoding = true;
-      canvas.toBlob(
-        (blob) => {
-          void (async () => {
-            try {
-              if (
-                !blob ||
-                blob.size > BROWSER_CAMERA_MAX_BYTES ||
-                disposed ||
-                socket !== current ||
-                current.readyState !== WebSocket.OPEN
-              )
-                return;
-              const image = await blob.arrayBuffer();
-              if (disposed || socket !== current || current.readyState !== WebSocket.OPEN) return;
-              sequence = (sequence + 1) >>> 0;
-              const frame = encodeBrowserCameraFrame(image, sequence);
-              awaiting = { sequence, at: Date.now() };
-              current.send(frame);
-            } finally {
-              encoding = false;
-            }
-          })();
-        },
-        'image/jpeg',
-        0.7,
-      );
+      void grab().then((source) => {
+        if (!source || disposed || socket !== current) {
+          encoding = false;
+          return;
+        }
+        const sourceWidth = 'videoWidth' in source ? source.videoWidth : source.width;
+        const sourceHeight = 'videoHeight' in source ? source.videoHeight : source.height;
+        const scale = Math.min(1, width / sourceWidth, height / sourceHeight);
+        canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+        canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+        context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        if ('close' in source) source.close();
+        canvas.toBlob(
+          (blob) => {
+            void (async () => {
+              try {
+                if (
+                  !blob ||
+                  blob.size > BROWSER_CAMERA_MAX_BYTES ||
+                  disposed ||
+                  socket !== current ||
+                  current.readyState !== WebSocket.OPEN
+                )
+                  return;
+                const image = await blob.arrayBuffer();
+                if (disposed || socket !== current || current.readyState !== WebSocket.OPEN) return;
+                sequence = (sequence + 1) >>> 0;
+                const frame = encodeBrowserCameraFrame(image, sequence);
+                awaiting = { sequence, at: Date.now() };
+                current.send(frame);
+              } finally {
+                encoding = false;
+              }
+            })();
+          },
+          'image/jpeg',
+          0.7,
+        );
+      });
+    };
+    // Une image prise sur la piste elle-même : la vidéo d'un onglet caché n'est pas forcément
+    // redessinée, la piste continue. Repli sur l'élément vidéo (Safari, Firefox).
+    const grab = async (): Promise<HTMLVideoElement | ImageBitmap | null> => {
+      if (imageCapture) {
+        try {
+          return await imageCapture.grabFrame();
+        } catch {
+          // Piste momentanément indisponible : l'élément vidéo prend le relais.
+        }
+      }
+      return video.readyState >= 2 ? video : null;
     };
     void (async () => {
       try {
@@ -137,9 +158,18 @@ export function BrowserCamera({
         for (const track of captured.getVideoTracks()) track.onended = release;
         video.srcObject = captured;
         await video.play();
+        const track = captured.getVideoTracks()[0];
+        const Capture = (
+          window as unknown as {
+            ImageCapture?: new (track: MediaStreamTrack) => { grabFrame(): Promise<ImageBitmap> };
+          }
+        ).ImageCapture;
+        if (Capture && track) imageCapture = new Capture(track);
         if (!disposed) {
           connect();
-          tick();
+          ticker = new Worker(new URL('./camera-ticker.js', import.meta.url));
+          ticker.onmessage = tick;
+          ticker.postMessage(100);
         }
       } catch (error) {
         if (!disposed) {
@@ -156,7 +186,7 @@ export function BrowserCamera({
     })();
     return () => {
       disposed = true;
-      clearTimeout(timer);
+      ticker?.terminate();
       clearTimeout(retry);
       clearTimeout(connectTimer);
       socket?.close();

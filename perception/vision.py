@@ -16,7 +16,20 @@ MIN_FACE_PIXELS = 72
 MAX_POSE = 0.35
 MIN_SHARPNESS = 20
 MIN_DETECTION = 0.9
+# La netteté se mesure sur le visage ramené à cette largeur au plus : la variance du
+# Laplacien baisse quand la résolution monte, et un visage net filmé en 1080p (400 px)
+# passait pour flou. Les petits visages (caméras 480p/720p) restent mesurés tels quels.
+SHARPNESS_WIDTH = 160
 DEFAULT_ENGAGEMENT = {"poseTolerance": 0.3, "minFaceRatio": 0.14}
+
+
+def face_sharpness(gray):
+    """Variance du Laplacien du visage, à une échelle indépendante de la caméra."""
+    height, width = gray.shape[:2]
+    if width > SHARPNESS_WIDTH:
+        size = (SHARPNESS_WIDTH, max(1, round(height * SHARPNESS_WIDTH / width)))
+        gray = cv2.resize(gray, size, interpolation=cv2.INTER_AREA)
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
 @dataclass
@@ -152,7 +165,7 @@ class Vision:
             return "Rapprochez-vous légèrement de la caméra.", False
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         brightness = float(gray.mean())
-        sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        sharpness = face_sharpness(gray)
         usable = (
             min(w, h) >= MIN_FACE_PIXELS
             and inside
