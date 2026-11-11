@@ -223,7 +223,8 @@ export function registerHardware(
   });
   app.get(
     '/api/admin/camera/frame',
-    { preHandler: authorize('admin'), config: { rateLimit: { max: 8, timeWindow: '1 second' } } },
+    // L'aperçu demande jusqu'à 10 images par seconde : marge pour la gigue du réseau.
+    { preHandler: authorize('admin'), config: { rateLimit: { max: 15, timeWindow: '1 second' } } },
     async (_req, reply) => {
       try {
         const jpeg = await perception.camera.preview();

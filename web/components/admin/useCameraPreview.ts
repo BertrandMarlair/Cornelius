@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 
+/** Intervalle minimal entre deux images de l'aperçu (10 par seconde au plus). */
+const PREVIEW_INTERVAL_MS = 100;
+
 /**
  * Aperçu local de la caméra du miroir, image par image, seulement tant qu’il est affiché et
  * que l’onglet est visible. Aucune image n’est conservée.
@@ -26,7 +29,10 @@ export function useCameraPreview(enabled: boolean) {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const next = async () => {
-      let retry = 250;
+      const startedAt = performance.now();
+      // Image suivante dès que possible, jusqu'à 10 par seconde (le rythme de la caméra du
+      // navigateur et sous la limite du serveur) : seule la latence réseau ralentit l'aperçu.
+      let retry = 0;
       try {
         const response = await fetch('/api/admin/camera/frame', {
           signal: abort.signal,
@@ -43,6 +49,7 @@ export function useCameraPreview(enabled: boolean) {
         if (abort.signal.aborted) return;
         setFrame(URL.createObjectURL(blob));
         setError(null);
+        retry = Math.max(0, PREVIEW_INTERVAL_MS - (performance.now() - startedAt));
       } catch {
         if (abort.signal.aborted) return;
         setFrame(null);
