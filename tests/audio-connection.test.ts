@@ -361,6 +361,8 @@ test('l’offre locale n’attend ni la collecte ICE ni le microphone, qui la re
   const f = fixture(t);
   f.delayCapture();
   const connection = new LocalAudioConnection();
+  assert.equal(f.peers.length, 0); // WebRTC n’est ouvert qu’à la première offre.
+  void connection.peer;
   const peer = f.peers[0]!;
   peer.iceGatheringState = 'gathering';
   assert.equal(await connection.offer(), 'local-sdp');
@@ -440,4 +442,16 @@ test('un dépassement du tampon avant admission reste signalé au transfert', as
   connection.resetAudio();
   connection.onOverflow(() => warnings++);
   assert.equal(warnings, 1);
+});
+
+test('voix portée par le serveur : la préparation n’ouvre aucune connexion WebRTC', async (t) => {
+  const f = fixture(t);
+  await prepareAudio();
+  for (let round = 0; round < 3; round++) {
+    // La présence va et vient : chaque retour prépare le micro, jamais WebRTC.
+    const connection = warmAudioConnection(true, false, false)!;
+    await connection.microphone();
+    releaseWarmAudioConnection();
+  }
+  assert.equal(f.peers.length, 0);
 });

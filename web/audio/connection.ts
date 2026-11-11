@@ -11,10 +11,18 @@ import {
 
 /** Only local resources: no server request, remote SDP or audio transmission. */
 export class LocalAudioConnection {
-  readonly peer = new RTCPeerConnection({ iceCandidatePoolSize: 1 });
-  readonly events = this.peer.createDataChannel('oai-events');
-  // L’offre ne dépend pas du micro : sa piste rejoint l’émetteur dès qu’elle est prête.
-  private readonly transceiver = this.peer.addTransceiver('audio', { direction: 'sendrecv' });
+  /**
+   * WebRTC n’existe que pour OpenAI, créé au premier besoin. Les fournisseurs portés par le
+   * serveur (voix locale, Mistral) n’en ont pas l’usage, et Chrome refuse toute nouvelle
+   * connexion après quelques centaines (« Cannot create so many PeerConnections ») : la
+   * présence qui va et vient en préparait une à chaque retour.
+   */
+  private webrtc: {
+    peer: RTCPeerConnection;
+    events: RTCDataChannel;
+    transceiver: RTCRtpTransceiver;
+  } | null = null;
+  private sendTrack: MediaStreamTrack | null = null;
   readonly context = preparedAudioContext();
   private readonly settings = captureKey();
   private readonly abort = new AbortController();
@@ -37,8 +45,8 @@ export class LocalAudioConnection {
       this.buffered === buffered &&
       !this.abort.signal.aborted &&
       this.settings === captureKey() &&
-      this.peer.connectionState !== 'closed' &&
-      this.peer.connectionState !== 'failed' &&
+      this.webrtc?.peer.connectionState !== 'closed' &&
+      this.webrtc?.peer.connectionState !== 'failed' &&
       !this.stream?.getAudioTracks().some((track) => track.readyState === 'ended')
     );
   }
@@ -85,12 +93,34 @@ export class LocalAudioConnection {
           track.enabled = true;
         });
         const media = this.buffered ? this.outgoing!.stream : stream;
-        await this.transceiver.sender.replaceTrack(media.getAudioTracks()[0] ?? null);
+        this.sendTrack = media.getAudioTracks()[0] ?? null;
+        if (this.webrtc) await this.webrtc.transceiver.sender.replaceTrack(this.sendTrack);
         this.check();
         return stream;
       })();
     }
     return this.capture;
+  }
+
+  get peer(): RTCPeerConnection {
+    return this.openWebRtc().peer;
+  }
+
+  get events(): RTCDataChannel {
+    return this.openWebRtc().events;
+  }
+
+  private openWebRtc() {
+    if (!this.webrtc) {
+      this.check();
+      const peer = new RTCPeerConnection({ iceCandidatePoolSize: 1 });
+      const events = peer.createDataChannel('oai-events');
+      // L’offre ne dépend pas du micro : sa piste rejoint l’émetteur dès qu’elle est prête.
+      const transceiver = peer.addTransceiver('audio', { direction: 'sendrecv' });
+      this.webrtc = { peer, events, transceiver };
+      if (this.sendTrack) void transceiver.sender.replaceTrack(this.sendTrack).catch(() => {});
+    }
+    return this.webrtc;
   }
 
   /** Offre locale immédiate : ni micro ni collecte ICE à attendre, OpenAI fournit ses candidats. */
@@ -158,8 +188,8 @@ export class LocalAudioConnection {
     this.silent?.disconnect();
     this.outgoing?.stream.getTracks().forEach((track) => track.stop());
     this.stream?.getTracks().forEach((track) => track.stop());
-    this.events.close();
-    this.peer.close();
+    this.webrtc?.events.close();
+    this.webrtc?.peer.close();
     releaseAudioContext(this.context);
   }
 }
@@ -184,6 +214,7 @@ export function releaseWarmAudioConnection() {
 export function warmAudioConnection(
   persistent = false,
   buffered = false,
+  webrtc = true,
 ): LocalAudioConnection | null {
   if (!audioPreparation().ready) return null;
   if (warm?.connection.usable(buffered)) {
@@ -203,7 +234,7 @@ export function warmAudioConnection(
     }),
   };
   // The capture feeds wake detection and the advanced buffer before any admission.
-  void Promise.all([connection.microphone(), connection.offer()]).catch(() => {
+  void Promise.all([connection.microphone(), webrtc ? connection.offer() : null]).catch(() => {
     // A speculative failure must not close a session which has since taken ownership.
     if (warm?.connection === connection) releaseWarmAudioConnection();
   });

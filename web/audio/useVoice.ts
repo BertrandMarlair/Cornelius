@@ -164,7 +164,11 @@ export function useVoice(state: MirrorState | null, fresh: boolean) {
     if (!listenForWake && modeChanged) releaseWarmAudioConnection();
     if (canWarm || listenForWake) {
       try {
-        const connection = warmAudioConnection(true, advancedBuffer);
+        const connection = warmAudioConnection(
+          true,
+          advancedBuffer,
+          !usesServerAudio(state?.voiceProvider),
+        );
         if (
           advancedBuffer &&
           !state?.wakeWord.enabled &&
@@ -185,6 +189,7 @@ export function useVoice(state: MirrorState | null, fresh: boolean) {
     advancedBuffer,
     state?.wakeWord.enabled,
     state?.presence.peopleCount,
+    state?.voiceProvider,
   ]);
   useEffect(
     () => () => {
