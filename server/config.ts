@@ -40,6 +40,11 @@ export interface AppConfig {
   tlsKey?: string;
   /** Noms d'hôte supplémentaires acceptés (CORNELIUS_ALLOWED_HOSTS, séparés par des virgules). */
   allowedHosts?: string[];
+  /**
+   * Pages autorisées à afficher Cornelius dans un cadre, avec son micro (CORNELIUS_FRAME_ANCESTORS,
+   * origines https séparées par des virgules, ex. un tableau de bord Home Assistant).
+   */
+  frameAncestors?: string[];
   /** Empreinte du certificat HTTPS en service, affichée dans l'administration. */
   tlsFingerprint?: string;
   /** Empreinte de la clé publique : celle que vérifient les satellites audio. */
@@ -118,6 +123,7 @@ export function loadConfig(): AppConfig & { port: number } {
       .split(',')
       .map((host) => host.trim())
       .filter(Boolean),
+    frameAncestors: frameAncestors(process.env.CORNELIUS_FRAME_ANCESTORS),
     openaiKey: process.env.OPENAI_API_KEY || undefined,
     perceptionToken: process.env.CORNELIUS_PERCEPTION_TOKEN || undefined,
     imageGenerationToken: process.env.CORNELIUS_IMAGE_GENERATION_TOKEN || undefined,
@@ -146,4 +152,19 @@ export function loadConfig(): AppConfig & { port: number } {
     secureCookies: false,
     staticRoot: resolve('dist/web'),
   };
+}
+
+/** Origines https valides seulement : une valeur mal formée n'ouvre jamais le cadrage. */
+export function frameAncestors(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => {
+      try {
+        const url = new URL(origin);
+        return url.protocol === 'https:' && url.origin === origin;
+      } catch {
+        return false;
+      }
+    });
 }

@@ -726,10 +726,13 @@ export async function createApp(
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
     reply.header('Cache-Control', 'no-store');
-    reply.header('X-Frame-Options', 'DENY');
+    // Cadrage refusé par défaut ; seules les pages de CORNELIUS_FRAME_ANCESTORS peuvent
+    // afficher Cornelius (et lui prêter le micro) dans un cadre.
+    const ancestors = config.frameAncestors ?? [];
+    if (ancestors.length === 0) reply.header('X-Frame-Options', 'DENY');
     reply.header(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+      `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors ${ancestors.length > 0 ? ancestors.join(' ') : "'none'"}; form-action 'self'`,
     );
     // Clients : la machine elle-même, et le réseau local quand il est ouvert. Une adresse
     // publique (port redirigé par un routeur) est toujours refusée.
