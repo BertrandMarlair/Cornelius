@@ -42,17 +42,27 @@ function Test-CorneliusHealthy([int]$Port) {
 
 Write-WatchLog 'Surveillance démarrée.'
 $failures = 0
+# Un processus absent n'est relancé qu'au deuxième contrôle d'affilée : un arrêt ou un
+# démarrage en cours a le temps de poser ou de retirer le fichier d'état.
+$backendMissing = 0
+$perceptionMissing = 0
 while ($true) {
   Start-Sleep -Seconds $IntervalSeconds
   try {
     # Pas de fichier d'état : arrêté volontairement, ou démarrage/mise à jour en cours.
-    if (-not (Test-Path -LiteralPath $StateFile)) { $failures = 0; continue }
+    if (-not (Test-Path -LiteralPath $StateFile)) {
+      $failures = $backendMissing = $perceptionMissing = 0
+      continue
+    }
     $state = Get-CorneliusState
     $port = Get-CorneliusPort
     $changed = $false
 
     $backendPid = Get-CorneliusPortOwner -Port $port
-    if ($backendPid -le 0) {
+    if ($backendPid -le 0 -and ++$backendMissing -lt 2) {
+      # Premier constat : on attend le contrôle suivant.
+    } elseif ($backendPid -le 0 -and (Test-Path -LiteralPath $StateFile)) {
+      $backendMissing = 0
       Save-CrashLog 'backend'
       Write-WatchLog "Serveur arrêté : relance."
       $node = Resolve-CorneliusNode
@@ -60,7 +70,7 @@ while ($true) {
       $failures = 0
       $changed = $true
     } elseif (Test-CorneliusHealthy -Port $port) {
-      $failures = 0
+      $failures = $backendMissing = 0
     } elseif (++$failures -ge $UnhealthyChecks) {
       Save-CrashLog 'backend'
       Write-WatchLog "Serveur sans réponse ($failures contrôles) : relance."
@@ -72,7 +82,11 @@ while ($true) {
       $changed = $true
     }
 
-    if ($state.ContainsKey('perception') -and @(Get-CorneliusWorkerPids).Count -eq 0) {
+    $perceptionDown = $state.ContainsKey('perception') -and @(Get-CorneliusWorkerPids).Count -eq 0
+    if (-not $perceptionDown) {
+      $perceptionMissing = 0
+    } elseif (++$perceptionMissing -ge 2 -and (Test-Path -LiteralPath $StateFile)) {
+      $perceptionMissing = 0
       Save-CrashLog 'perception'
       Write-WatchLog 'Perception arrêtée : relance.'
       Start-CorneliusPerception -State $state

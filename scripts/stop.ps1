@@ -8,6 +8,9 @@ param()
 Initialize-CorneliusDirs
 
 $state = Get-CorneliusState
+# Désarme d'abord la surveillance (scripts\watch.ps1) : sinon elle relancerait les processus
+# pendant qu'on les arrête.
+if (Test-Path -LiteralPath $StateFile) { Remove-Item -LiteralPath $StateFile -Force }
 $stopped = @()
 
 # Processus suivis dans le fichier d'état.
@@ -32,8 +35,6 @@ foreach ($workerPid in @(Get-CorneliusWorkerPids)) {
 foreach ($workerPid in @(Get-CorneliusImageWorkerPids)) {
   if (Stop-CorneliusTree -ProcessId $workerPid) { $stopped += "génération d'image (PID $workerPid)" }
 }
-
-if (Test-Path -LiteralPath $StateFile) { Remove-Item -LiteralPath $StateFile -Force }
 
 if ($stopped.Count -gt 0) {
   Write-Host ('Arrêté : ' + ($stopped -join ', '))
