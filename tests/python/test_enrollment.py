@@ -87,12 +87,24 @@ class EnrollmentTests(unittest.TestCase):
             self.capture(0, pitch=.48)
         self.enrollment.add([], self.now + .1)  # Tête levée : le détecteur perd une image.
         self.assertEqual(len(self.enrollment.samples), 5)
-        self.assertEqual(self.enrollment.message, "Gardez le visage dans le cadre, face à la caméra.")
+        self.assertEqual(self.enrollment.message, "Un peu moins : la caméra doit encore voir tout votre visage.")
         self.capture(0, pitch=.48)
         self.assertEqual(len(self.enrollment.templates), 8)
         self.enrollment.add([], self.now + .1)
         self.enrollment.add([], self.now + 1)  # Perdu trop longtemps : on recommence.
         self.assertEqual(len(self.enrollment.samples), 0)
+
+    def test_a_light_chin_lift_is_enough(self):
+        for pose in (0, .25, -.25):
+            for _ in range(6):
+                self.capture(pose)
+        for _ in range(6):
+            self.capture(0, pitch=.505)  # Menton levé de 0,045 : mesuré sur une vraie webcam.
+        self.assertEqual(len(self.enrollment.templates), 8)
+
+    def test_a_face_lost_face_on_asks_to_stay_in_frame(self):
+        self.enrollment.add([], self.now)
+        self.assertEqual(self.enrollment.message, "Gardez le visage dans le cadre, face à la caméra.")
 
     def test_tells_what_to_correct(self):
         for pose in (0, .25, -.25):

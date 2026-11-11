@@ -26,9 +26,12 @@ STRAIGHT = "Gardez la tête droite, sans la tourner."
 TOO_FAR = "Un peu moins : le mouvement doit rester léger."
 NO_FACE = "Gardez le visage dans le cadre, face à la caméra."
 ONE_PERSON = "Placez une seule personne devant la caméra."
+LOST_TILTING = "Un peu moins : la caméra doit encore voir tout votre visage."
 STAGES = 5
-# Écart d’inclinaison verticale par rapport à la position de face.
-PITCH_MIN = 0.06
+# Écart d’inclinaison verticale par rapport à la position de face. De face, il varie de
+# ±0,01 ; une webcam au-dessus de l’écran ne voit qu’environ 0,05 pour un menton levé, et
+# au-delà le détecteur perd le visage.
+PITCH_MIN = 0.04
 PITCH_MAX = 0.35
 
 
@@ -108,7 +111,7 @@ class Enrollment:
         if not samples:
             # Tête levée ou baissée, le détecteur perd parfois le visage une image : ce n’est ni
             # une autre personne ni une raison de recommencer l’étape.
-            self.miss(NO_FACE, now)
+            self.miss(LOST_TILTING if self.stage >= 3 else NO_FACE, now)
             return None
         sample = samples[0]
         if sample.issue:
