@@ -1,6 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { reportDiagnostic } from '../diagnostics';
 import {
+  CAMERA_STATS_MS,
+  JPEG_QUALITY_MAX,
+  newCameraStats,
+  nextJpegQuality,
+  recordAck,
+  recordSent,
+  reportCameraStats,
+} from './camera-stats';
+import {
   BROWSER_CAMERA_MAX_BYTES,
   encodeBrowserCameraFrame,
   type BrowserCameraConfig,
@@ -29,6 +38,10 @@ export function BrowserCamera({
     let connectTimer: ReturnType<typeof setTimeout> | undefined;
     let encoding = false;
     let awaiting: { sequence: number; at: number } | null = null;
+    // Une image trop lourde (scène détaillée, bruit en basse lumière) n’est plus jetée :
+    // la qualité baisse jusqu’à passer, puis remonte doucement.
+    let quality = JPEG_QUALITY_MAX;
+    const stats = newCameraStats();
     let sequence = crypto.getRandomValues(new Uint32Array(1))[0]!;
     let retryMs = 500;
     const video = videoRef.current!;
@@ -55,7 +68,11 @@ export function BrowserCamera({
             clearTimeout(connectTimer);
             retryMs = 500;
           }
-          if (event.type === 'camera_ack' && event.sequence === awaiting?.sequence) awaiting = null;
+          const pending = awaiting;
+          if (event.type === 'camera_ack' && pending && event.sequence === pending.sequence) {
+            recordAck(stats, Date.now() - pending.at);
+            awaiting = null;
+          }
         } catch {
           current.close(1003);
         }
@@ -64,6 +81,7 @@ export function BrowserCamera({
         clearTimeout(connectTimer);
         if (disposed || socket !== current) return;
         awaiting = null;
+        stats.reconnects++;
         if (event.code === 1008) return void release();
         retry = setTimeout(connect, retryMs + Math.random() * 200);
         retryMs = Math.min(retryMs * 2, 8000);
@@ -72,6 +90,15 @@ export function BrowserCamera({
     };
     const tick = () => {
       if (disposed) return;
+      if (Date.now() - stats.since >= CAMERA_STATS_MS) {
+        reportCameraStats(stats, {
+          hidden: document.hidden,
+          quality,
+          width: canvas.width,
+          height: canvas.height,
+        });
+        Object.assign(stats, newCameraStats());
+      }
       if (awaiting && Date.now() - awaiting.at > 5000) return void socket?.close();
       if (
         !context ||
@@ -96,31 +123,39 @@ export function BrowserCamera({
         canvas.height = Math.max(1, Math.round(sourceHeight * scale));
         context.drawImage(source, 0, 0, canvas.width, canvas.height);
         if ('close' in source) source.close();
+        const encodeStarted = Date.now();
         canvas.toBlob(
           (blob) => {
             void (async () => {
               try {
+                stats.encodeMs = Math.max(stats.encodeMs, Date.now() - encodeStarted);
+                if (blob && blob.size > BROWSER_CAMERA_MAX_BYTES) {
+                  stats.oversized++;
+                  quality = nextJpegQuality(quality, blob.size);
+                  return;
+                }
                 if (
                   !blob ||
-                  blob.size > BROWSER_CAMERA_MAX_BYTES ||
                   disposed ||
                   socket !== current ||
                   current.readyState !== WebSocket.OPEN
                 )
                   return;
+                quality = nextJpegQuality(quality, blob.size);
                 const image = await blob.arrayBuffer();
                 if (disposed || socket !== current || current.readyState !== WebSocket.OPEN) return;
                 sequence = (sequence + 1) >>> 0;
                 const frame = encodeBrowserCameraFrame(image, sequence);
                 awaiting = { sequence, at: Date.now() };
                 current.send(frame);
+                recordSent(stats, Date.now());
               } finally {
                 encoding = false;
               }
             })();
           },
           'image/jpeg',
-          0.7,
+          quality,
         );
       });
     };
@@ -131,6 +166,7 @@ export function BrowserCamera({
         try {
           return await imageCapture.grabFrame();
         } catch {
+          stats.grabFailures++;
           // Piste momentanément indisponible : l'élément vidéo prend le relais.
         }
       }

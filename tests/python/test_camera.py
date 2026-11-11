@@ -37,7 +37,7 @@ class CameraTests(unittest.TestCase):
             image = camera.preview()
             self.assertTrue(image.startswith(b"\xff\xd8"))
             self.assertTrue(image.endswith(b"\xff\xd9"))
-            camera.latest_at -= 3
+            camera.latest_at -= camera.FRESH_SECONDS + 1
             self.assertIsNone(camera.preview())
             camera.disable()
 

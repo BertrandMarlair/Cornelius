@@ -102,8 +102,15 @@ export interface SessionTransport {
   prewarm?(): void;
 }
 
+/**
+ * Âge maximal d’une observation caméra. Une caméra de navigateur passe par le Wi-Fi et un
+ * proxy : des trous de deux à trois secondes arrivent, et ne doivent ni retirer la présence
+ * ni couper la conversation.
+ */
+export const SENSOR_STALE_MS = 5000;
+
 const limits = {
-  sensorMs: 2000,
+  sensorMs: SENSOR_STALE_MS,
   browserMs: 5000,
   connectionMs: 5000,
   closeMs: 5000,

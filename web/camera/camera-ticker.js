@@ -3,5 +3,6 @@
 let timer = null;
 self.onmessage = ({ data }) => {
   clearInterval(timer);
-  timer = typeof data === 'number' && data > 0 ? setInterval(() => self.postMessage(0), data) : null;
+  timer =
+    typeof data === 'number' && data > 0 ? setInterval(() => self.postMessage(0), data) : null;
 };

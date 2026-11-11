@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
 import type { ImageCard, LunaCardRequest, PerceptionObservation, Scope } from '../shared/types.js';
-import { SessionController, type SessionTransport } from '../server/controller.js';
+import { SENSOR_STALE_MS, SessionController, type SessionTransport } from '../server/controller.js';
 import { openDatabase, ProfileRepository, SessionPreferences } from '../server/storage.js';
 
 const card: LunaCardRequest = {
@@ -386,7 +386,7 @@ test('une observation rejouée ne rafraîchit pas un capteur bloqué', (t) => {
   f.engage();
   f.ready();
   const last = f.lastObservation();
-  f.jump(1999);
+  f.jump(SENSOR_STALE_MS - 1);
   f.controller.heartbeat();
   assert.equal(f.controller.observe({ ...last, observedAt: f.clock() }), false);
   f.controller.tick();
@@ -401,6 +401,25 @@ test('une observation rejouée ne rafraîchit pas un capteur bloqué', (t) => {
     f.controller.observe({ ...last, sequence: last.sequence + 1, observedAt: f.clock() + 5000 }),
     false,
   );
+});
+
+test('un trou de quelques secondes dans les images ne coupe ni la présence ni la conversation', (t) => {
+  for (const mode of [1, 2, 3] as const) {
+    const f = fixture(t);
+    f.controller.setSessionMode(mode);
+    const scope = f.engage([f.alice.id]);
+    f.ready();
+    // Caméra de navigateur en Wi-Fi : une image toutes les trois secondes pendant 30 s.
+    for (let index = 0; index < 10; index++) {
+      f.advance(3000, { sensor: false });
+      assert.equal(f.state().presence.health, 'ok', 'mode ' + mode);
+      f.observe({ people: [{ trackId: 'person-0', profileId: f.alice.id }] });
+    }
+    assert.equal(f.state().session.phase, 'ready', 'mode ' + mode);
+    assert.equal(f.state().activeProfile?.id, f.alice.id);
+    assert.deepEqual(f.controller.scope().interactionId, scope.interactionId);
+    assert.equal(f.transport.closed.length, 0);
+  }
 });
 
 test('un redémarrage capteur retire le profil et refuse ensuite les anciens producteurs', (t) => {
@@ -499,7 +518,7 @@ for (const guard of ['sensor', 'browser'] as const) {
     const scope = f.engage();
     f.controller.sessionStarted(scope);
     if (guard === 'sensor') {
-      f.jump(2000);
+      f.jump(SENSOR_STALE_MS);
       f.controller.heartbeat();
     } else {
       f.jump(5000);
@@ -549,7 +568,7 @@ test('les observations inchangées ne republient pas, mais une panne expire touj
   f.advance(10_000);
   assert.equal(events.length, 0);
   assert.equal(f.controller.snapshot().sequence, sequence);
-  f.advance(2100, { sensor: false });
+  f.advance(SENSOR_STALE_MS + 100, { sensor: false });
   assert.equal(f.state().presence.health, 'unavailable');
   assert.ok(events.length > 0);
   const count = events.length;
@@ -1325,7 +1344,7 @@ test('les délais n’allongent ni la panne caméra ni le blocage vie privée', 
       identityHoldMs: 8000,
     });
     if (reason === 'sensor') {
-      f.advance(2000, { sensor: false });
+      f.advance(SENSOR_STALE_MS, { sensor: false });
       assert.equal(f.state().presence.health, 'unavailable');
     } else {
       f.controller.setPrivacyMode(true);
@@ -1810,7 +1829,7 @@ test('mode voix : la caméra n’est saine que pendant les images fraîches', (t
   f.ready();
   f.see([null]);
   assert.equal(f.controller.presenceScope().healthy, true);
-  f.jump(2500);
+  f.jump(SENSOR_STALE_MS + 500);
   assert.equal(f.controller.presenceScope().healthy, false);
   assert.equal(f.state().session.phase, 'ready');
 });

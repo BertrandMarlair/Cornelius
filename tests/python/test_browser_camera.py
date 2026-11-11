@@ -19,7 +19,10 @@ class BrowserCameraTests(unittest.TestCase):
             self.assertTrue(camera.read()[0])
             self.assertEqual(camera.status()["selectedId"], "browser")
             self.assertIsNotNone(camera.preview())
+            # A Wi-Fi gap of a few seconds keeps the last frame.
             camera.latest_at -= 3
+            self.assertTrue(camera.read()[0])
+            camera.latest_at -= camera.FRESH_SECONDS
             self.assertFalse(camera.read()[0])
             self.assertIsNone(camera.preview())
             boot = camera.boot

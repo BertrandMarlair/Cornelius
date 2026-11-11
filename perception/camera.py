@@ -179,9 +179,13 @@ class Camera:
             self.latest_wall = captured if ok else 0
             return ok, frame, captured, self.boot
 
+    # Matches the server's sensor window (controller limits.sensorMs): a browser camera on
+    # Wi-Fi has gaps of a few seconds, which must not read as a camera failure.
+    FRESH_SECONDS = 5
+
     def _fresh(self):
-        """The latest frame, only while it is at most 2 s old; caller holds the lock."""
-        if self.latest is None or time.monotonic() - self.latest_at > 2:
+        """The latest frame, only while it is recent enough; caller holds the lock."""
+        if self.latest is None or time.monotonic() - self.latest_at > self.FRESH_SECONDS:
             return None
         return self.latest
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
 import type { ConnectClientEvent, ConnectServerEvent } from 'openai/resources/live/sideband';
 import { openDatabase, ProfileRepository, SessionPreferences } from '../server/storage.js';
-import { SessionController } from '../server/controller.js';
+import { SENSOR_STALE_MS, SessionController } from '../server/controller.js';
 import { VisionBridge } from '../server/vision.js';
 import { LiveTransport } from '../server/live/transport.js';
 import type { LiveGateway } from '../server/live/gateway.js';
@@ -248,7 +248,7 @@ test('une capture livrée après la perte confirmée d’engagement est ignorée
   f.vision.tick();
   const command = f.lastCommand('scene', 'vision')!;
   f.observe(false, false);
-  f.advance(4_000, false);
+  f.advance(SENSOR_STALE_MS + 2_000, false);
   f.controller.tick();
   f.capture('scene', command.requestId!, 'Personne partie.');
   assert.equal(f.appends().length, 0);
@@ -713,7 +713,7 @@ test('le mode 1 permet une question visuelle sans engagement préalable', async 
 test('une caméra sans observation saine ne lance aucune vision même si la session reste prête', async (t) => {
   const f = fixture(t, 'tool');
   await f.ready();
-  f.advance(3_001, false);
+  f.advance(SENSOR_STALE_MS + 1, false);
   const result = await f.look({
     profileId: null,
     interactionId: f.scope.interactionId,
@@ -851,7 +851,7 @@ test('mode voix : vision__look est proposé, attend la caméra rallumée puis re
   const delegation = f.configs[0]!.delegation as { responses: { tools: { name?: string }[] } };
   assert.ok(delegation.responses.tools.some((tool) => tool.name === 'vision__look'));
   // Les images d’avant la conversation sont périmées : la caméra vient de se rallumer.
-  f.advance(2500, false);
+  f.advance(SENSOR_STALE_MS + 500, false);
   assert.equal(f.controller.presenceScope().healthy, false);
   const pending = f.look({
     profileId: null,
