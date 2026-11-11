@@ -131,6 +131,11 @@ export const WEB_TOOLS: WebToolDefinition[] = [
           type: 'number',
           description: 'Nombre de jours de prévision, 1 à 7 (3 par défaut).',
         },
+        day: {
+          type: 'number',
+          description:
+            'Le jour demandé, s’il y en a un : 0 aujourd’hui, 1 demain, 2 après-demain… (6 au plus).',
+        },
       },
       required: ['place'],
     },
@@ -403,6 +408,45 @@ export function promisesSearch(text: string): boolean {
 type SpokenConnection = Parameters<typeof trainSummary>[0][number];
 
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/**
+ * La réponse orale à la météo, courte : le jour demandé seulement, ou à défaut le temps qu'il
+ * fait et la journée en cours. Le détail des autres jours reste dans le résultat de l'outil.
+ */
+export function weatherSpeech(
+  place: string,
+  now: { temperature: number; sky?: string } | undefined,
+  days: { day: string; sky?: string; min?: number; max?: number; rainChance?: number }[],
+  asked: number | undefined,
+): string {
+  const describe = (index: number) => {
+    const day = days[index];
+    if (!day) return null;
+    return `${day.sky ?? 'temps inconnu'}, de ${Math.round(day.min ?? 0)} à ${Math.round(day.max ?? 0)} degrés, ${day.rainChance ?? 0} % de risque de pluie.`;
+  };
+  const label = (index: number) =>
+    index === 0
+      ? 'Aujourd’hui'
+      : index === 1
+        ? 'Demain'
+        : index === 2
+          ? 'Après-demain'
+          : capitalize(
+              new Intl.DateTimeFormat('fr-BE', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                timeZone: 'UTC',
+              }).format(new Date(`${days[index]!.day}T12:00:00Z`)),
+            );
+  if (asked && describe(asked)) return `${label(asked)} à ${place} : ${describe(asked)}`;
+  const sentences = [
+    now &&
+      `En ce moment à ${place} : ${Math.round(now.temperature)} degrés, ${now.sky ?? 'temps inconnu'}.`,
+    describe(0) && `${label(0)} : ${describe(0)}`,
+  ].filter(Boolean);
+  return sentences.length ? sentences.join(' ') : `Pas de prévision trouvée pour ${place}.`;
+}
 
 const spokenTime = (time: string) => time.replace(':', ' h ').replace(/ h 00$/u, ' h');
 
@@ -816,7 +860,7 @@ export function createWebTools(
     };
   }
 
-  async function weatherPlace(place: string, days = 3): Promise<WebToolResult> {
+  async function weatherPlace(place: string, days = 3, day?: number): Promise<WebToolResult> {
     const geo = await getJson<{
       results?: {
         name: string;
@@ -831,7 +875,11 @@ export function createWebTools(
     const location = geo.results?.[0];
     if (!location)
       return { output: JSON.stringify({ place, note: 'Lieu introuvable.' }), sources: [] };
-    const count = Math.min(7, Math.max(1, Math.round(days) || 3));
+    const asked =
+      day === undefined || !Number.isFinite(day)
+        ? undefined
+        : Math.min(6, Math.max(0, Math.round(day)));
+    const count = Math.min(7, Math.max(1, Math.round(days) || 3, (asked ?? 0) + 1));
     const forecast = await getJson<{
       current?: { temperature_2m: number; weather_code: number; wind_speed_10m: number };
       daily?: {
@@ -856,25 +904,23 @@ export function createWebTools(
     ]
       .filter(Boolean)
       .join(' ');
+    const now = forecast.current && {
+      temperature: forecast.current.temperature_2m,
+      sky: WEATHER_CODES[forecast.current.weather_code],
+      windKmh: forecast.current.wind_speed_10m,
+    };
+    const forecastDays =
+      daily?.time.map((date, index) => ({
+        day: date,
+        sky: WEATHER_CODES[daily.weather_code[index] ?? -1],
+        min: daily.temperature_2m_min[index],
+        max: daily.temperature_2m_max[index],
+        rainChance: daily.precipitation_probability_max[index],
+      })) ?? [];
     return {
-      output: JSON.stringify({
-        summary,
-        place: placeName,
-        now: forecast.current && {
-          temperature: forecast.current.temperature_2m,
-          sky: WEATHER_CODES[forecast.current.weather_code],
-          windKmh: forecast.current.wind_speed_10m,
-        },
-        days: daily?.time.map((day, index) => ({
-          day,
-          sky: WEATHER_CODES[daily.weather_code[index] ?? -1],
-          min: daily.temperature_2m_min[index],
-          max: daily.temperature_2m_max[index],
-          rainChance: daily.precipitation_probability_max[index],
-        })),
-      }),
+      output: JSON.stringify({ summary, place: placeName, now, days: forecastDays }),
       sources: [{ url: 'https://open-meteo.com/', title: 'Open-Meteo' }],
-      speech: `D’après Open-Meteo, ${summary.charAt(0).toLowerCase()}${summary.slice(1)}`,
+      speech: weatherSpeech(location.name, now, forecastDays, asked),
     };
   }
 
@@ -913,7 +959,11 @@ export function createWebTools(
           });
         case 'weather_place':
           if (!text('place')) throw new Error('Lieu requis.');
-          return await weatherPlace(text('place'), Number(args.days) || 3);
+          return await weatherPlace(
+            text('place'),
+            Number(args.days) || 3,
+            args.day === undefined || args.day === null ? undefined : Number(args.day),
+          );
         default:
           throw new Error(`Outil inconnu : ${name}`);
       }

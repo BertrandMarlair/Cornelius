@@ -10,6 +10,7 @@ import {
   promisesSearch,
   searchNotice,
   trainSpeech,
+  weatherSpeech,
 } from '../server/voice/local-web.js';
 import type { VoiceEvent } from '../server/voice/provider.js';
 
@@ -338,4 +339,20 @@ test('a ready-made answer is spoken as is, without asking the model again', asyn
   assert.ok(answer?.type === 'assistant_transcript');
   assert.match(answer.text, /^D’après la SNCB, le train de 21 h 54/u);
   await connection.close();
+});
+
+test('weatherSpeech says only the asked day, or now and today', () => {
+  const days = [
+    { day: '2026-11-11', sky: 'pluie', min: 5.2, max: 7.4, rainChance: 100 },
+    { day: '2026-11-12', sky: 'bruine', min: 5, max: 10, rainChance: 25 },
+  ];
+  const now = { temperature: 7.2, sky: 'couvert' };
+  assert.equal(
+    weatherSpeech('Bruxelles', now, days, 1),
+    'Demain à Bruxelles : bruine, de 5 à 10 degrés, 25 % de risque de pluie.',
+  );
+  assert.equal(
+    weatherSpeech('Bruxelles', now, days, undefined),
+    'En ce moment à Bruxelles : 7 degrés, couvert. Aujourd’hui : pluie, de 5 à 7 degrés, 100 % de risque de pluie.',
+  );
 });
