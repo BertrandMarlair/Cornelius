@@ -24,6 +24,8 @@ UP = "Levez légèrement le menton."
 DOWN = "Baissez légèrement le menton."
 STRAIGHT = "Gardez la tête droite, sans la tourner."
 TOO_FAR = "Un peu moins : le mouvement doit rester léger."
+NO_FACE = "Gardez le visage dans le cadre, face à la caméra."
+ONE_PERSON = "Placez une seule personne devant la caméra."
 STAGES = 5
 # Écart d’inclinaison verticale par rapport à la position de face.
 PITCH_MIN = 0.06
@@ -88,10 +90,25 @@ class Enrollment:
             return TOO_FAR
         return None if abs(offset) >= PITCH_MIN else self.prompt()
 
-    def add(self, samples, now):
-        if len(samples) != 1:
+    def miss(self, message, now):
+        """Écart passager : les images de l’étape restent acquises pendant le délai de grâce."""
+        self.message = message
+        if self.missed_since is None:
+            self.missed_since = now
+        if now - self.missed_since >= self.grace:
             self.samples.clear()
-            self.message = "Placez une seule personne devant la caméra."
+            if self.stage == 0:
+                self.pitches.clear()
+
+    def add(self, samples, now):
+        if len(samples) > 1:
+            self.samples.clear()
+            self.message = ONE_PERSON
+            return None
+        if not samples:
+            # Tête levée ou baissée, le détecteur perd parfois le visage une image : ce n’est ni
+            # une autre personne ni une raison de recommencer l’étape.
+            self.miss(NO_FACE, now)
             return None
         sample = samples[0]
         if sample.issue:
@@ -111,13 +128,7 @@ class Enrollment:
             return None
         problem = self.mismatch(sample)
         if problem:
-            self.message = problem
-            if self.missed_since is None:
-                self.missed_since = now
-            if now - self.missed_since >= self.grace:
-                self.samples.clear()
-                if self.stage == 0:
-                    self.pitches.clear()
+            self.miss(problem, now)
             return None
         self.missed_since = None
         self.message = self.prompt()

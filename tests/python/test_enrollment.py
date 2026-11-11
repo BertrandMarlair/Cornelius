@@ -79,6 +79,21 @@ class EnrollmentTests(unittest.TestCase):
             self.capture(0, pitch=.58)  # Revenu de face trop longtemps : on recommence.
         self.assertEqual(len(self.enrollment.samples), 0)
 
+    def test_a_face_lost_for_an_instant_does_not_restart_the_step(self):
+        for pose in (0, .25, -.25):
+            for _ in range(6):
+                self.capture(pose)
+        for _ in range(5):
+            self.capture(0, pitch=.48)
+        self.enrollment.add([], self.now + .1)  # Tête levée : le détecteur perd une image.
+        self.assertEqual(len(self.enrollment.samples), 5)
+        self.assertEqual(self.enrollment.message, "Gardez le visage dans le cadre, face à la caméra.")
+        self.capture(0, pitch=.48)
+        self.assertEqual(len(self.enrollment.templates), 8)
+        self.enrollment.add([], self.now + .1)
+        self.enrollment.add([], self.now + 1)  # Perdu trop longtemps : on recommence.
+        self.assertEqual(len(self.enrollment.samples), 0)
+
     def test_tells_what_to_correct(self):
         for pose in (0, .25, -.25):
             for _ in range(6):
@@ -100,8 +115,10 @@ class EnrollmentTests(unittest.TestCase):
         self.capture(0, issue="Image floue")
         self.assertEqual(len(self.enrollment.samples), 0)
         self.capture(0)
-        self.enrollment.add([], self.now)
+        sample = FaceSample(self.feature, 0)
+        self.enrollment.add([sample, sample], self.now)
         self.assertEqual(len(self.enrollment.samples), 0)
+        self.assertEqual(self.enrollment.message, "Placez une seule personne devant la caméra.")
         for _ in range(6):
             self.capture(0)
         self.capture(.25, feature=-self.feature)
