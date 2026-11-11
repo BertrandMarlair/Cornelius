@@ -26,6 +26,21 @@ export interface LocalVoiceSettings {
 export const LOCAL_MAX_SESSION_MS = 15 * 60_000;
 const SAMPLE_RATE = 16_000;
 const BYTES_PER_MS = (SAMPLE_RATE * 2) / 1000;
+/** Avance maximale de la voix envoyée sur sa lecture (le navigateur coupe au-delà de 2 s). */
+const SPEECH_LEAD_MS = 1000;
+
+/** Attente interrompue par la fin du tour ou de la conversation (sans rejet). */
+const pause = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    }
+    signal.addEventListener('abort', done, { once: true });
+  });
 const PRE_ROLL_MS = 300;
 const END_SILENCE_MS = 700;
 const MIN_SPEECH_MS = 250;
@@ -214,12 +229,17 @@ export function createLocalVoiceAdapter(
         });
         if (!response.ok) throw new Error(`Synthèse vocale : HTTP ${response.status}`);
         const pcm = Buffer.from(await response.arrayBuffer());
-        if (signal.aborted || closed || !pcm.length) return;
-        const durationMs = pcm.length / BYTES_PER_MS;
-        playbackUntil = Math.max(playbackUntil, Date.now()) + durationMs;
         const chunk = 16_000; // 0,5 s
-        for (let offset = 0; offset < pcm.length; offset += chunk)
-          notify({ type: 'assistant_speech', pcm: pcm.subarray(offset, offset + chunk) });
+        for (let offset = 0; offset < pcm.length; offset += chunk) {
+          // Au rythme de la lecture : le navigateur raccroche s'il reçoit plus de 2 s d'avance,
+          // et Piper rend une phrase entière d'un coup.
+          const ahead = playbackUntil - Date.now();
+          if (ahead > SPEECH_LEAD_MS) await pause(ahead - SPEECH_LEAD_MS, signal);
+          if (signal.aborted || closed) return;
+          const part = pcm.subarray(offset, offset + chunk);
+          playbackUntil = Math.max(playbackUntil, Date.now()) + part.length / BYTES_PER_MS;
+          notify({ type: 'assistant_speech', pcm: part });
+        }
       };
 
       const transcribe = async (pcm: Buffer, signal: AbortSignal): Promise<string> => {
@@ -289,6 +309,9 @@ export function createLocalVoiceAdapter(
         let text = '';
         let pendingSpeech = '';
         let speech = Promise.resolve();
+        // La voix part pendant que le modèle écrit encore : son erreur est gardée pour la fin,
+        // jamais laissée sans réponse (une promesse rejetée et oubliée arrête le serveur).
+        let speechError: unknown = null;
         const calls = new Map<number, { id: string; name: string; args: string }>();
         const queueSpeech = (final: boolean) => {
           if (!speakText) return;
@@ -297,7 +320,11 @@ export function createLocalVoiceAdapter(
           for (const sentence of sentences) {
             if (!busy) continue;
             notify({ type: 'state', state: 'speaking' });
-            speech = speech.then(() => speak(sentence, signal));
+            speech = speech
+              .then(() => speak(sentence, signal))
+              .catch((error: unknown) => {
+                speechError ??= error;
+              });
           }
         };
         const decoder = new TextDecoder();
@@ -352,6 +379,7 @@ export function createLocalVoiceAdapter(
         }
         queueSpeech(true);
         await speech;
+        if (speechError && !signal.aborted) throw speechError;
         return {
           text: text.replace(/<think>[\s\S]*?<\/think>/gu, '').trim(),
           calls: [...calls.values()],
