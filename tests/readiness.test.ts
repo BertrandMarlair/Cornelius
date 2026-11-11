@@ -486,3 +486,10 @@ test('l’administration garde la priorité et les conditions de démarrage de S
     false,
   );
 });
+
+test('voix locale sans clé OpenAI : le miroir ne se dit pas « pas encore configuré »', () => {
+  const state = mirror(gaze, { setup: { openaiKey: false, voiceKey: true, perception: true } });
+  assert.notEqual(mirrorBlocker(state, { fresh: true })?.id, 'openai-key');
+  const missing = mirror(gaze, { setup: { openaiKey: true, voiceKey: false, perception: true } });
+  assert.equal(mirrorBlocker(missing, { fresh: true })?.id, 'openai-key');
+});

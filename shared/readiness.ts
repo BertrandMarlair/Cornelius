@@ -351,7 +351,9 @@ export function mirrorBlocker(
   if (!connection.fresh)
     return { id: 'connection', reason: 'Connexion au serveur interrompue, reconnexion en cours.' };
   if (['connecting', 'ready', 'closing'].includes(state.session.phase)) return null;
-  if (state.setup?.openaiKey === false)
+  // Le fournisseur vocal choisi (OpenAI, Mistral ou voix locale) : la clé OpenAI seule ne
+  // compte que pour les anciens serveurs, qui ne diffusent pas voiceKey.
+  if ((state.setup?.voiceKey ?? state.setup?.openaiKey) === false)
     return {
       id: 'openai-key',
       reason: 'Cornelius n’est pas encore configuré : ouvrez l’administration sur cet ordinateur.',
