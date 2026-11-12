@@ -307,11 +307,12 @@ const zoneSchema = {
     brightnessPct: { anyOf: [{ type: 'integer', minimum: 1, maximum: 100 }, { type: 'null' }] },
   },
 };
+// Les petits modèles locaux omettent souvent la luminosité : absente vaut null.
 const validZone = compile<{
   zone: string;
   action: 'turn_on' | 'turn_off';
-  brightnessPct: number | null;
-}>(zoneSchema);
+  brightnessPct?: number | null;
+}>({ ...zoneSchema, required: ['zone', 'action'] });
 const sameName = (left: string, right: string) =>
   left.localeCompare(right, 'fr', { sensitivity: 'base' }) === 0;
 
@@ -1030,7 +1031,7 @@ export class HomeAssistant {
         headers: { Authorization: 'Bearer ' + config.token, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           entity_id: targets,
-          ...(args.action === 'turn_on' && args.brightnessPct !== null
+          ...(args.action === 'turn_on' && args.brightnessPct != null
             ? { brightness_pct: args.brightnessPct }
             : {}),
         }),
@@ -1159,6 +1160,9 @@ export class HomeAssistant {
     signal: AbortSignal,
     actor: 'luna' | 'admin',
   ): Promise<ToolResult> {
+    // Les petits modèles locaux omettent souvent la luminosité : absente vaut null.
+    if (args && typeof args === 'object' && !('brightnessPct' in args))
+      args = { ...args, brightnessPct: null };
     if (!validCommand(args))
       return tool('failed', 'Commande Home Assistant invalide.', null, 'invalid_params');
     const config = this.config;

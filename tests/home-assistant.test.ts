@@ -699,6 +699,24 @@ test('« allume l’étage » : une seule commande pour les lumières de l’ét
   assert.equal(fake.states.get('light.salon')!.state, 'off');
 });
 
+test('zone sans luminosité : le modèle local peut omettre brightnessPct', async (t) => {
+  const { fake, home } = await houseFixture(t);
+  const result = await home.run(
+    { zone: 'Bureau', action: 'turn_on' },
+    signal(),
+    'home_assistant__zone',
+  );
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(fake.calls[0]!.body, { entity_id: ['light.bureau'] });
+});
+
+test('commande appareil sans luminosité acceptée', async (t) => {
+  const { fake, home } = await houseFixture(t);
+  const result = await home.run({ entityId: 'light.bureau', action: 'turn_on' }, signal());
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(fake.calls[0]!.body, { entity_id: 'light.bureau' });
+});
+
 test('zone inconnue ou outil désactivé : aucune commande envoyée', async (t) => {
   const { fake, home } = await houseFixture(t);
   const unknown = await home.run(
