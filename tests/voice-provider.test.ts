@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createVoiceGateway, mistralToolDescription } from '../server/voice/live-bridge.js';
+import { createVoiceGateway } from '../server/voice/live-bridge.js';
 import {
+  mistralToolDescription,
   upsamplePcm16,
   pcmDownsampler,
   MISTRAL_STT_MODEL,
@@ -56,6 +57,28 @@ test('dynamic Hermes descriptions are bounded without removing their intent', ()
   assert.match(bounded, /^Confier une demande à Hermes/u);
   assert.match(bounded, /agents__capabilities/u);
   assert.equal(mistralToolDescription('Court'), 'Court');
+});
+
+test('la voix reçoit les descriptions d’outils entières : la liste des zones n’est plus coupée', async () => {
+  let config!: VoiceConfiguration;
+  const zones =
+    'Zones : ' + JSON.stringify(Array.from({ length: 60 }, (_, i) => ({ zone: 'Pièce ' + i })));
+  const gateway = createVoiceGateway({
+    connect: async (value) => {
+      config = value;
+      return { audio() {}, result() {}, update: async () => {}, close: async () => {} };
+    },
+  });
+  gateway.connect!(
+    liveConfiguration([
+      { name: 'home_assistant__zone', description: zones, parameters: { type: 'object' } },
+    ]),
+    { open() {}, event() {}, failure() {} },
+  );
+  await tick();
+  const tool = config.tools.find((entry) => entry.name === 'home_assistant__zone');
+  assert.ok(zones.length > 1024);
+  assert.equal(tool?.description, zones);
 });
 
 test('adapter reuses local tool dispatch, returns RPC results and confirms context only after update', async () => {

@@ -2,6 +2,15 @@ import { Mistral } from '@mistralai/mistralai';
 import { FunctionHandler } from '@mistralai/mistralai/extra/voice-agents';
 import type { VoiceProviderAdapter, VoiceConfiguration, VoiceEvent } from './provider.js';
 
+const MISTRAL_TOOL_DESCRIPTION_LIMIT = 1024;
+/** Mistral rejects the entire voice session when one dynamic tool description is too long. */
+export function mistralToolDescription(description: string): string {
+  const text = description.trim();
+  if (text.length <= MISTRAL_TOOL_DESCRIPTION_LIMIT) return text;
+  const suffix = '… Consulte agents__capabilities pour le catalogue détaillé.';
+  return text.slice(0, MISTRAL_TOOL_DESCRIPTION_LIMIT - suffix.length).trimEnd() + suffix;
+}
+
 /** Linear interpolation for the exact 16→48 kHz SDK input ratio. */
 export function upsamplePcm16(pcm: Buffer): Uint8Array {
   if (pcm.length % 2) throw new Error('Trame PCM16 invalide.');
@@ -92,7 +101,10 @@ export function createMistralVoiceAdapter(
           (tool) =>
             new FunctionHandler({
               name: tool.name,
-              declaration: { type: 'function', function: tool },
+              declaration: {
+                type: 'function',
+                function: { ...tool, description: mistralToolDescription(tool.description) },
+              },
               timeoutMs: 65_000,
               invoke: async (args) => {
                 if (closed || pending.size >= 32)

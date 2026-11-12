@@ -9,15 +9,6 @@ import type {
   VoiceEvent,
 } from './provider.js';
 
-const MISTRAL_TOOL_DESCRIPTION_LIMIT = 1024;
-/** Mistral rejects the entire voice session when one dynamic tool description is too long. */
-export function mistralToolDescription(description: string): string {
-  const text = description.trim();
-  if (text.length <= MISTRAL_TOOL_DESCRIPTION_LIMIT) return text;
-  const suffix = '… Consulte agents__capabilities pour le catalogue détaillé.';
-  return text.slice(0, MISTRAL_TOOL_DESCRIPTION_LIMIT - suffix.length).trimEnd() + suffix;
-}
-
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 
@@ -54,7 +45,9 @@ export function createVoiceGateway(adapter: VoiceProviderAdapter): LiveGateway {
                 ? [
                     {
                       name: tool.name,
-                      description: mistralToolDescription(String(tool.description ?? '')),
+                      // Entière : seule l’API Mistral borne la longueur (mistral.ts). La voix locale a
+                      // besoin de toute la liste des appareils et des zones.
+                      description: String(tool.description ?? '').trim(),
                       parameters: record(tool.parameters),
                     },
                   ]
