@@ -34,6 +34,10 @@ export async function fakeHomeAssistant() {
   // Entrées de registre ajoutées par un test (capteurs, grand catalogue).
   const registry: Record<string, unknown>[] = [];
   const wsCalls: string[] = [];
+  // Registres de pièces, d’étages et d’appareils (vides par défaut, comme une instance neuve).
+  const floors: Record<string, unknown>[] = [];
+  const areas: Record<string, unknown>[] = [];
+  const devices: Record<string, unknown>[] = [];
   const options = {
     apply: true,
     /** Délai avant que l’appareil factice remonte son nouvel état (comme un vrai Zigbee). */
@@ -67,8 +71,10 @@ export async function fakeHomeAssistant() {
       for await (const chunk of req) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>;
       calls.push({ path, body });
-      const entity = states.get(String(body.entity_id));
-      if (options.apply && entity && options.serviceStatus === 200) {
+      const targets = (Array.isArray(body.entity_id) ? body.entity_id : [body.entity_id])
+        .map((id) => states.get(String(id)))
+        .filter((entity) => entity !== undefined);
+      for (const entity of options.apply && options.serviceStatus === 200 ? targets : []) {
         const apply = () => {
           entity.state = path.endsWith('/turn_on') ? 'on' : 'off';
           entity.last_updated = new Date().toISOString();
@@ -161,6 +167,9 @@ export async function fakeHomeAssistant() {
         };
       }
       if (request.type === 'homeassistant/expose_new_entities/get') result = { expose_new: true };
+      if (request.type === 'config/floor_registry/list') result = floors;
+      if (request.type === 'config/area_registry/list') result = areas;
+      if (request.type === 'config/device_registry/list') result = devices;
       if (request.type === 'config/entity_registry/list')
         result = [
           { entity_id: 'light.salon', options: { conversation: { should_expose: true } } },
@@ -203,6 +212,9 @@ export async function fakeHomeAssistant() {
     states,
     aliases,
     registry,
+    floors,
+    areas,
+    devices,
     calls,
     wsCalls,
     options,

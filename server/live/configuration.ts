@@ -73,6 +73,7 @@ export function liveConfiguration(
   const satelliteVolume = extraTools.some((tool) => tool.name === 'satellite__volume');
   const homeSensors = extraTools.some((tool) => tool.name === 'home_assistant__read');
   const homeControl = extraTools.some((tool) => tool.name === 'home_assistant__control');
+  const homeZones = extraTools.some((tool) => tool.name === 'home_assistant__zone');
   const homeDevices = homeSensors || homeControl;
   const config: MediaSessionConfig = {
     model: 'gpt-live-1',
@@ -125,6 +126,9 @@ Les identifiants exacts des sources et des commandes autorisées sont dans la de
           // Sans appareil autorisé (ou réservé aux personnes reconnues), Luna n’en entend pas parler.
           (homeControl
             ? ' Pour les appareils Home Assistant autorisés, utilise home_assistant__control ; accepted signifie seulement commande acceptée, et seul confirmed autorise à confirmer l’état observé.'
+            : '') +
+          (homeZones
+            ? ' Pour un étage, une pièce entière ou toute la maison (« allume l’étage », « éteins en bas », « éteins tout »), appelle une seule fois home_assistant__zone avec la zone correspondante ; ne confirme que les lumières listées dans confirmed et signale celles de notConfirmed ou unavailable.'
             : '') +
           (homeSensors
             ? ' Pour l’état d’un capteur de la maison (température, minuterie, fin d’un programme de lave-linge ou de four, ouverture, consommation), appelle home_assistant__read avec son identifiant exact : endsAtLocal et remainingMinutes sont calculés par le serveur, reprends-les tels quels sans recalculer ; un état unknown ou unavailable signifie que la donnée manque. Affiche ensuite une carte concise avec ui__show_luna_card.'

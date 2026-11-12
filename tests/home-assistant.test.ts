@@ -618,3 +618,102 @@ test('adresse injoignable et coupure en cours d’utilisation ont chacune leur m
   await delay(1_300);
   assert.equal(home.view().error, HOME_ASSISTANT_CUT);
 });
+
+/** Maison sur deux étages : salon en bas, chambre et bureau à l’étage. */
+async function houseFixture(t: TestContext) {
+  const fake = await fakeHomeAssistant();
+  fake.states.set('light.chambre', haState('light.chambre', 'off', true));
+  fake.states.set('light.bureau', haState('light.bureau'));
+  fake.states.set('light.grenier', haState('light.grenier', 'unavailable'));
+  fake.floors.push(
+    { floor_id: 'rez', name: 'Rez-de-chaussée', aliases: ['en bas'] },
+    { floor_id: 'etage', name: 'Étage', aliases: ['en haut'] },
+  );
+  fake.areas.push(
+    { area_id: 'salon', name: 'Salon', floor_id: 'rez' },
+    { area_id: 'chambre', name: 'Chambre', floor_id: 'etage' },
+    { area_id: 'bureau', name: 'Bureau', floor_id: 'etage' },
+  );
+  // Pièce portée par l’appareil pour la chambre, par l’entité pour les autres.
+  fake.devices.push({ id: 'device-chambre', area_id: 'chambre' });
+  fake.registry.push(
+    { entity_id: 'light.salon', area_id: 'salon', options: {} },
+    { entity_id: 'light.chambre', device_id: 'device-chambre', options: {} },
+    { entity_id: 'light.bureau', area_id: 'bureau', options: {} },
+    { entity_id: 'light.grenier', area_id: 'bureau', options: {} },
+  );
+  const db = openDatabase(':memory:');
+  const home = new HomeAssistant(new HomeAssistantRepository(db), createHttpClient());
+  t.after(async () => {
+    home.dispose();
+    db.close();
+    await fake.close();
+  });
+  await home.configure({ url: fake.url, token: fake.token, revision: 0 });
+  home.select({
+    selected: ['light.salon', 'light.chambre', 'light.bureau', 'light.grenier', 'switch.bureau'],
+    revision: home.view().revision,
+  });
+  home.setAccess({ enabled: true, revision: home.view().revision });
+  return { fake, home };
+}
+
+test('pièces et étages décrits à Luna, avec une zone par étage, par pièce et pour la maison', async (t) => {
+  const { home } = await houseFixture(t);
+  const tools = home.tools();
+  const control = tools.find((tool) => tool.name === 'home_assistant__control')!;
+  assert.ok(control.description.includes('"area":"Chambre","floor":"Étage"'));
+  const zone = tools.find((tool) => tool.name === 'home_assistant__zone')!;
+  assert.ok(zone, 'outil de zone absent');
+  const zones = (zone.parameters.properties as { zone: { enum: string[] } }).zone.enum;
+  assert.deepEqual(zones, [
+    'Rez-de-chaussée',
+    'Étage',
+    'Salon',
+    'Chambre',
+    'Bureau',
+    'Toute la maison',
+  ]);
+  assert.ok(zone.description.includes('"aliases":["en haut"]'));
+  // Une prise n’est jamais une lumière de zone.
+  assert.ok(zone.description.includes('"zone":"Toute la maison","kind":"maison"'));
+  assert.ok(zone.description.includes('"lights":4'));
+});
+
+test('« allume l’étage » : une seule commande pour les lumières de l’étage, indisponibles écartées', async (t) => {
+  const { fake, home } = await houseFixture(t);
+  const result = await home.run(
+    { zone: 'étage', action: 'turn_on', brightnessPct: 60 },
+    signal(),
+    'home_assistant__zone',
+  );
+  assert.equal(result.status, 'succeeded');
+  assert.equal(fake.calls.length, 1);
+  assert.equal(fake.calls[0]!.path, '/api/services/light/turn_on');
+  assert.deepEqual(fake.calls[0]!.body, {
+    entity_id: ['light.chambre', 'light.bureau'],
+    brightness_pct: 60,
+  });
+  assert.deepEqual(result.result?.confirmed, ['light.chambre', 'light.bureau']);
+  assert.deepEqual(result.result?.unavailable, ['light.grenier']);
+  assert.equal(fake.states.get('light.salon')!.state, 'off');
+});
+
+test('zone inconnue ou outil désactivé : aucune commande envoyée', async (t) => {
+  const { fake, home } = await houseFixture(t);
+  const unknown = await home.run(
+    { zone: 'Cave', action: 'turn_off', brightnessPct: null },
+    signal(),
+    'home_assistant__zone',
+  );
+  assert.equal(unknown.status, 'failed');
+  assert.equal(unknown.error?.code, 'forbidden');
+  home.setAccess({ enabled: false, revision: home.view().revision });
+  const disabled = await home.run(
+    { zone: 'Salon', action: 'turn_off', brightnessPct: null },
+    signal(),
+    'home_assistant__zone',
+  );
+  assert.equal(disabled.status, 'failed');
+  assert.equal(fake.calls.length, 0);
+});
